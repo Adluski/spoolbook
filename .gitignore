@@ -1,0 +1,34 @@
+# --- Spoolbook: never commit real business data ---
+# The SQLite database holds real customer names, phone numbers and pricing.
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env
+
+# Claude / editor / OS
+.claude/
+CLAUDE.md
+.DS_Store
+.idea/
+.vscode/
+
+# PyInstaller
+*.spec
+build/
+dist/
