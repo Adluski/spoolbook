@@ -42,15 +42,18 @@ from .widgets import (
 )
 
 # Column widths shared by the header and every row so they line up as columns.
-W_MATERIAL = 78
-W_SOURCE = 140
-W_WEIGHT = 96
-W_TIME = 120
-W_COGS = 108
-W_PRICE = 104
-W_PROFIT = 104
-W_REMOVE = 34
-LABEL_MIN = 150
+# Kept tight so per-plate mode (which adds Price + Profit) still fits without a
+# horizontal scrollbar at the default window width.
+W_MATERIAL = 74
+W_SOURCE = 134
+W_WEIGHT = 86
+W_TIME = 116
+W_COGS = 96
+W_PRICE = 98
+W_PROFIT = 98
+W_REMOVE = 30
+LABEL_MIN = 120
+COL_SPACING = 6
 
 
 def _fixed(widget: QWidget, width: int) -> QWidget:
@@ -70,8 +73,8 @@ class PlateRow(QFrame):
         self.pricing_mode = pricing_mode
 
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(10, 6, 8, 6)
-        lay.setSpacing(8)
+        lay.setContentsMargins(10, 6, 6, 6)
+        lay.setSpacing(COL_SPACING)
 
         # -- label cell (stretch) with reprint badge ------------------------
         label_cell = QWidget()
@@ -249,8 +252,8 @@ class PlateRowsEditor(QWidget):
         header = QFrame()
         header.setObjectName("PlateHeader")
         lay = QHBoxLayout(header)
-        lay.setContentsMargins(10, 7, 8, 7)
-        lay.setSpacing(8)
+        lay.setContentsMargins(10, 7, 6, 7)
+        lay.setSpacing(COL_SPACING)
 
         def col(text, width=None, align=Qt.AlignLeft):
             lbl = QLabel(text.upper())

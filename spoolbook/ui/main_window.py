@@ -36,6 +36,7 @@ class MainWindow(QWidget):
     def __init__(self, db=None):
         super().__init__()
         self.db = db
+        self.setObjectName("MainWindow")
         self.setWindowTitle(APP_NAME)
         self.resize(1180, 760)
         self.setMinimumSize(940, 600)

@@ -216,19 +216,13 @@ class OrderEntryView(QWidget):
                      self.chip_cogs, self.chip_suggested):
             lay.addWidget(chip)
 
-        self.qty_hint = QLabel("")
-        self.qty_hint.setObjectName("Muted")
-        self.qty_hint.setWordWrap(True)
-        self.qty_hint.setFixedWidth(96)
-        lay.addWidget(self.qty_hint)
-
         lay.addStretch(1)
 
         # order-level editable controls
         self.ol_controls = QWidget()
         ol = QHBoxLayout(self.ol_controls)
         ol.setContentsMargins(0, 0, 0, 0)
-        ol.setSpacing(14)
+        ol.setSpacing(12)
         ol.addLayout(self._labeled("Final price", self._make_price_editor()))
         ol.addLayout(self._labeled("Profit", self._make_profit_editor()))
         self.margin_label_ol = QLabel("—")
@@ -278,9 +272,10 @@ class OrderEntryView(QWidget):
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(4)
         self.final_spin = money_spin(minimum=0, maximum=100_000_000)
-        self.final_spin.setFixedWidth(120)
+        self.final_spin.setFixedWidth(106)
         reset = QPushButton("↺")
         reset.setObjectName("ResetButton")
+        reset.setFixedWidth(26)
         reset.setToolTip("Reset price & profit to suggested")
         reset.setCursor(Qt.PointingHandCursor)
         reset.clicked.connect(self._reset_to_suggested)
@@ -290,7 +285,7 @@ class OrderEntryView(QWidget):
 
     def _make_profit_editor(self) -> QWidget:
         self.profit_spin = money_spin(minimum=-100_000_000, maximum=100_000_000)
-        self.profit_spin.setFixedWidth(120)
+        self.profit_spin.setFixedWidth(106)
         return self.profit_spin
 
     # -- wiring -------------------------------------------------------------
@@ -331,8 +326,8 @@ class OrderEntryView(QWidget):
         self.chip_machine.set_value(fmt_money(machine))
         self.chip_cogs.set_value(fmt_money(cogs))
         self.chip_suggested.set_value(fmt_money(suggested), tone="accent")
-        self.qty_hint.setText(
-            f"COGS is per unit • ×{qty}" if qty > 1 else "")
+        self.chip_cogs.setToolTip(
+            f"Per unit — order quantity is ×{qty}" if qty > 1 else "")
 
         if self.order.pricing_mode == "order_level":
             if not self._final_touched:

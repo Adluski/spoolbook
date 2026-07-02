@@ -69,7 +69,6 @@ class PageHeader(QWidget):
         if subtitle:
             s = QLabel(subtitle)
             s.setObjectName("PageSubtitle")
-            s.setWordWrap(True)
             lay.addWidget(s)
 
 
