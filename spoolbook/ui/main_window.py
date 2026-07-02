@@ -87,7 +87,7 @@ class MainWindow(QWidget):
             btn.setObjectName("NavButton")
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
-            btn.clicked.connect(lambda _=False, k=key: self.go_to(k))
+            btn.clicked.connect(lambda _=False, k=key: self._on_nav(k))
             self._nav_group.addButton(btn)
             self._nav_buttons[key] = btn
             lay.addWidget(btn)
@@ -112,7 +112,12 @@ class MainWindow(QWidget):
         """Swap placeholders for real screens (grows as features land)."""
         if self.db is None:
             return
+        from .order_entry_view import OrderEntryView
         from .settings_view import SettingsView
+
+        entry = OrderEntryView(self.db)
+        entry.order_saved.connect(self._on_order_saved)
+        self.set_page("new_order", entry)
 
         settings = SettingsView(self.db)
         settings.settings_saved.connect(self._on_settings_changed)
@@ -124,6 +129,22 @@ class MainWindow(QWidget):
             hook = getattr(page, "on_settings_changed", None)
             if callable(hook):
                 hook()
+
+    def _refresh_data_views(self) -> None:
+        for page in self._pages.values():
+            hook = getattr(page, "refresh", None)
+            if callable(hook):
+                hook()
+
+    def _on_order_saved(self, order_id: int) -> None:
+        self._refresh_data_views()
+        self.go_to("history")
+
+    def open_order_for_edit(self, order) -> None:
+        page = self._pages.get("new_order")
+        if hasattr(page, "edit_order"):
+            page.edit_order(order)
+        self.go_to("new_order")
 
     def _placeholder(self, label: str) -> QWidget:
         w = QWidget()
@@ -147,6 +168,16 @@ class MainWindow(QWidget):
             old.deleteLater()
         self._pages[key] = widget
         self.stack.insertWidget(idx if idx != -1 else self.stack.count(), widget)
+
+    def _on_nav(self, key: str) -> None:
+        # Clicking "New order" in the rail while editing an existing order
+        # starts a fresh blank one; an in-progress new order is preserved.
+        if key == "new_order":
+            page = self._pages.get("new_order")
+            hook = getattr(page, "ensure_new_mode", None)
+            if callable(hook):
+                hook()
+        self.go_to(key)
 
     def go_to(self, key: str) -> None:
         page = self._pages.get(key)
