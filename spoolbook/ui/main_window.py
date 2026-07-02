@@ -8,6 +8,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -156,6 +157,15 @@ class MainWindow(QWidget):
         if hasattr(page, "prefill_from_calculator"):
             page.prefill_from_calculator(plates)
         self.go_to("new_order")
+
+    def log_reprint(self, source_plate) -> None:
+        """Open the reprint dialog for a saved plate and persist the result."""
+        from .reprint_dialog import ReprintDialog
+
+        dialog = ReprintDialog(source_plate, self.db.get_settings(), self)
+        if dialog.exec() == QDialog.Accepted and dialog.result_plate is not None:
+            self.db.add_plate(dialog.result_plate)
+            self._refresh_data_views()
 
     def _placeholder(self, label: str) -> QWidget:
         w = QWidget()
