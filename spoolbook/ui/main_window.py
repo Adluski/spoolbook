@@ -112,12 +112,17 @@ class MainWindow(QWidget):
         """Swap placeholders for real screens (grows as features land)."""
         if self.db is None:
             return
+        from .calculator_view import CalculatorView
         from .order_entry_view import OrderEntryView
         from .settings_view import SettingsView
 
         entry = OrderEntryView(self.db)
         entry.order_saved.connect(self._on_order_saved)
         self.set_page("new_order", entry)
+
+        calculator = CalculatorView(self.db)
+        calculator.convert_requested.connect(self.open_calculator_conversion)
+        self.set_page("calculator", calculator)
 
         settings = SettingsView(self.db)
         settings.settings_saved.connect(self._on_settings_changed)
@@ -144,6 +149,12 @@ class MainWindow(QWidget):
         page = self._pages.get("new_order")
         if hasattr(page, "edit_order"):
             page.edit_order(order)
+        self.go_to("new_order")
+
+    def open_calculator_conversion(self, plates) -> None:
+        page = self._pages.get("new_order")
+        if hasattr(page, "prefill_from_calculator"):
+            page.prefill_from_calculator(plates)
         self.go_to("new_order")
 
     def _placeholder(self, label: str) -> QWidget:
