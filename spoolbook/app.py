@@ -7,7 +7,8 @@ import sys
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
 
-from .config import APP_NAME
+from .config import APP_NAME, db_path
+from .database import Database
 from .ui.main_window import MainWindow
 from .ui.theme import BASE_POINT_SIZE, UI_FONT_FAMILY, build_stylesheet
 
@@ -28,9 +29,13 @@ def build_application(argv: list[str] | None = None) -> QApplication:
 
 def main() -> int:
     app = build_application()
-    window = MainWindow()
+    db = Database(db_path())
+    window = MainWindow(db)
     window.show()
-    return app.exec()
+    try:
+        return app.exec()
+    finally:
+        db.close()
 
 
 if __name__ == "__main__":

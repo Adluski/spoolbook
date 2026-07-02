@@ -52,6 +52,7 @@ class MainWindow(QWidget):
         root.addWidget(self.stack, 1)
 
         self._build_pages()
+        self._install_real_views()
         self.go_to("calculator")
 
     # -- navigation rail ----------------------------------------------------
@@ -106,6 +107,23 @@ class MainWindow(QWidget):
             page = self._placeholder(label)
             self._pages[key] = page
             self.stack.addWidget(page)
+
+    def _install_real_views(self) -> None:
+        """Swap placeholders for real screens (grows as features land)."""
+        if self.db is None:
+            return
+        from .settings_view import SettingsView
+
+        settings = SettingsView(self.db)
+        settings.settings_saved.connect(self._on_settings_changed)
+        self.set_page("settings", settings)
+
+    def _on_settings_changed(self) -> None:
+        """Let other screens pick up new default rates when settings change."""
+        for page in self._pages.values():
+            hook = getattr(page, "on_settings_changed", None)
+            if callable(hook):
+                hook()
 
     def _placeholder(self, label: str) -> QWidget:
         w = QWidget()
