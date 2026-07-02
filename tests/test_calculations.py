@@ -1,0 +1,149 @@
+"""Tests for the pure costing / roll-up logic."""
+import pytest
+
+from spoolbook import calculations as calc
+from spoolbook.config import DEFAULT_SETTINGS
+from spoolbook.models import Order, Plate
+
+SETTINGS = dict(DEFAULT_SETTINGS)  # markup 1.75, buffer 5%
+
+
+def plate(**kw):
+    base = dict(
+        weight_grams=100.0, print_time_minutes=120, material_type="PLA",
+        material_source="own", material_rate_per_gram=0.9,
+        machine_rate_per_hour=30.0,
+    )
+    base.update(kw)
+    return Plate(**base)
+
+
+# -- per plate --------------------------------------------------------------
+def test_material_cost_own_filament():
+    assert calc.plate_material_cost(plate(weight_grams=100, material_rate_per_gram=0.9)) == 90.0
+
+
+def test_material_cost_customer_supplied_is_zero():
+    assert calc.plate_material_cost(plate(material_source="customer")) == 0.0
+
+
+def test_machine_cost():
+    # 120 min = 2h at 30/hr
+    assert calc.plate_machine_cost(plate(print_time_minutes=120, machine_rate_per_hour=30)) == 60.0
+
+
+def test_cogs_is_material_plus_machine():
+    p = plate()  # 90 + 60
+    assert calc.plate_cogs(p) == 150.0
+
+
+def test_cogs_customer_supplied_is_machine_only():
+    p = plate(material_source="customer")  # material 0 + machine 60
+    assert calc.plate_cogs(p) == 60.0
+
+
+# -- suggested price --------------------------------------------------------
+def test_suggested_unit_price_formula():
+    # cogs 150, material 90; (150 + 0.05*90) * 1.75 = 154.5 * 1.75
+    p = plate()
+    got = calc.suggested_unit_price([p], SETTINGS["markup_multiplier"],
+                                    SETTINGS["pellet_buffer_percent"])
+    assert got == pytest.approx(270.375)
+
+
+def test_suggested_price_scales_with_quantity_and_discount():
+    p = plate()
+    unit = calc.suggested_unit_price([p], 1.75, 5.0)
+    got = calc.suggested_price([p], 1.75, 5.0, quantity=3, bulk_discount_percent=10)
+    assert got == pytest.approx(unit * 3 * 0.9)
+
+
+def test_suggested_price_multi_plate_mixed_material():
+    plates = [
+        plate(material_type="PLA"),                       # cogs 150, mat 90
+        plate(material_type="PETG", material_rate_per_gram=1.2,
+              machine_rate_per_hour=40.0),                # mat 120, machine 80 => cogs 200
+    ]
+    # total cogs 350, total material 210; (350 + 0.05*210)*1.75
+    assert calc.suggested_unit_price(plates, 1.75, 5.0) == pytest.approx((350 + 10.5) * 1.75)
+
+
+# -- order-level roll-ups ---------------------------------------------------
+def test_order_level_profit_defaults_to_price_minus_cogs():
+    order = Order(pricing_mode="order_level", plates=[plate()])  # cogs 150
+    order.final_price = 300.0
+    # profit not set -> 300 - 150
+    assert calc.order_profit(order, SETTINGS) == pytest.approx(150.0)
+
+
+def test_order_level_profit_override_is_respected_and_decoupled():
+    order = Order(pricing_mode="order_level", plates=[plate()], final_price=300.0)
+    order.profit = 42.0  # deliberately unrelated to price - cogs
+    assert calc.order_profit(order, SETTINGS) == 42.0
+    # Changing price does not move the manually-set profit.
+    order.final_price = 999.0
+    assert calc.order_profit(order, SETTINGS) == 42.0
+
+
+def test_order_level_price_defaults_to_suggested_when_unset():
+    order = Order(pricing_mode="order_level", plates=[plate()])
+    assert order.final_price is None
+    assert calc.order_final_price(order, SETTINGS) == pytest.approx(270.375)
+
+
+# -- per-plate roll-ups -----------------------------------------------------
+def test_per_plate_price_and_profit_sum_plates():
+    order = Order(
+        pricing_mode="per_plate",
+        plates=[
+            plate(final_price=200.0, profit=50.0),
+            plate(final_price=120.0, profit=30.0),
+        ],
+    )
+    assert calc.order_final_price(order, SETTINGS) == 320.0
+    assert calc.order_profit(order, SETTINGS) == 80.0
+
+
+def test_per_plate_treats_missing_prices_as_zero():
+    order = Order(pricing_mode="per_plate",
+                  plates=[plate(final_price=None), plate(final_price=100.0)])
+    assert calc.order_final_price(order, SETTINGS) == 100.0
+
+
+# -- attribution ------------------------------------------------------------
+def test_attributions_sum_back_to_order_totals_order_level():
+    order = Order(pricing_mode="order_level",
+                  plates=[plate(material_type="PLA"),
+                          plate(material_type="PETG", material_rate_per_gram=1.2,
+                                machine_rate_per_hour=40.0)],
+                  final_price=500.0, profit=150.0)
+    rows = calc.plate_attributions(order, SETTINGS)
+    assert sum(r["revenue"] for r in rows) == pytest.approx(500.0)
+    assert sum(r["profit"] for r in rows) == pytest.approx(150.0)
+    assert sum(r["cogs"] for r in rows) == pytest.approx(calc.total_cogs(order.plates))
+    assert {r["material_type"] for r in rows} == {"PLA", "PETG"}
+
+
+def test_attributions_even_split_when_zero_cogs():
+    order = Order(pricing_mode="order_level",
+                  plates=[plate(material_source="customer", print_time_minutes=0),
+                          plate(material_source="customer", print_time_minutes=0)],
+                  final_price=100.0, profit=100.0)
+    rows = calc.plate_attributions(order, SETTINGS)
+    assert rows[0]["revenue"] == pytest.approx(50.0)
+    assert rows[1]["revenue"] == pytest.approx(50.0)
+
+
+def test_empty_order_rollup_is_safe():
+    order = Order(pricing_mode="order_level", plates=[])
+    r = calc.order_rollup(order, SETTINGS)
+    assert r["total_cogs"] == 0
+    assert r["profit"] == pytest.approx(r["final_price"])  # 0 - 0
+    assert calc.plate_attributions(order, SETTINGS) == []
+
+
+# -- money rounding ---------------------------------------------------------
+def test_round_money_half_up():
+    assert calc.round_money(270.375) == 270.38
+    assert calc.round_money(1.005) == 1.01
+    assert calc.round_money(2.5) == 2.5
