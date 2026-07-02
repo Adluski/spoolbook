@@ -114,6 +114,7 @@ class MainWindow(QWidget):
         if self.db is None:
             return
         from .calculator_view import CalculatorView
+        from .history_view import HistoryView
         from .order_entry_view import OrderEntryView
         from .settings_view import SettingsView
 
@@ -124,6 +125,9 @@ class MainWindow(QWidget):
         calculator = CalculatorView(self.db)
         calculator.convert_requested.connect(self.open_calculator_conversion)
         self.set_page("calculator", calculator)
+
+        history = HistoryView(self.db, self)
+        self.set_page("history", history)
 
         settings = SettingsView(self.db)
         settings.settings_saved.connect(self._on_settings_changed)
