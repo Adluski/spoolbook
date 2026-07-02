@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDateEdit,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QHeaderView,
@@ -30,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import calculations as calc
+from ..csv_export import write_csv
 from ..config import MATERIAL_SOURCE_LABELS, MATERIALS, PRICING_MODE_LABELS
 from .theme import NEGATIVE, POSITIVE
 from .widgets import PageHeader, fmt_grams, fmt_minutes, fmt_money
@@ -71,6 +73,11 @@ class HistoryView(QWidget):
         self.count_label = QLabel("")
         self.count_label.setObjectName("Muted")
         tl.addWidget(self.count_label)
+        self.export_btn = QPushButton("Export CSV")
+        self.export_btn.setObjectName("SecondaryButton")
+        self.export_btn.setCursor(Qt.PointingHandCursor)
+        self.export_btn.clicked.connect(self._export_csv)
+        tl.addWidget(self.export_btn)
         outer.addWidget(top)
         # Build the tree first (filter setup triggers a refresh that reads it),
         # but add the filter bar above it in the layout.
@@ -303,6 +310,27 @@ class HistoryView(QWidget):
             menu.addAction("Edit order…", lambda: self.window.open_order_for_edit(order))
             menu.addAction("Delete order…", lambda: self._delete_order(order))
         menu.exec(self.tree.viewport().mapToGlobal(pos))
+
+    def _export_csv(self) -> None:
+        """Export the currently filtered orders, one row per plate."""
+        orders = self.db.list_orders(**self._current_filters())
+        if not orders:
+            QMessageBox.information(self, "Export CSV",
+                                    "No orders match the current filters.")
+            return
+        default_name = f"spoolbook-export-{datetime.now():%Y%m%d}.csv"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export CSV", default_name, "CSV files (*.csv)")
+        if not path:
+            return
+        try:
+            count = write_csv(orders, self.db.get_settings(), path)
+        except OSError as exc:
+            QMessageBox.warning(self, "Export failed", str(exc))
+            return
+        QMessageBox.information(
+            self, "Export complete",
+            f"Wrote {count} plate row(s) from {len(orders)} order(s).")
 
     def _delete_order(self, order) -> None:
         name = order.title or order.customer_name or f"order #{order.id}"
