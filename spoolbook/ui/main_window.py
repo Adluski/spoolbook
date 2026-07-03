@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QStackedWidget,
@@ -166,6 +167,30 @@ class MainWindow(QWidget):
         if hasattr(page, "prefill_from_calculator"):
             page.prefill_from_calculator(plates)
         self.go_to("new_order")
+
+    def confirm_delete_order(self, order, parent=None) -> bool:
+        """Confirm, then delete an order and (via ON DELETE CASCADE) its plates,
+        refreshing every data view. Shared by the History and Queue screens.
+
+        The confirmation names both the order title and the customer so the
+        wrong row can't be deleted by accident. Returns True if deleted.
+        """
+        title = (order.title or "").strip() or "(untitled)"
+        customer = (order.customer_name or "").strip() or "(no customer)"
+        n = len(order.plates)
+        reply = QMessageBox.question(
+            parent or self, "Delete order",
+            f"Permanently delete this order and its {n} plate(s)?\n\n"
+            f"Title:      {title}\n"
+            f"Customer:   {customer}\n\n"
+            "This cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return False
+        self.db.delete_order(order.id)
+        self._refresh_data_views()
+        return True
 
     def log_reprint(self, source_plate) -> None:
         """Open the reprint dialog for a saved plate and persist the result."""

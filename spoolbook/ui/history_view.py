@@ -308,7 +308,8 @@ class HistoryView(QWidget):
             menu.addAction("Edit order…", lambda: self.window.open_order_for_edit(order))
         elif order is not None:
             menu.addAction("Edit order…", lambda: self.window.open_order_for_edit(order))
-            menu.addAction("Delete order…", lambda: self._delete_order(order))
+            menu.addAction("Delete order…",
+                           lambda: self.window.confirm_delete_order(order, self))
         menu.exec(self.tree.viewport().mapToGlobal(pos))
 
     def _export_csv(self) -> None:
@@ -331,15 +332,3 @@ class HistoryView(QWidget):
         QMessageBox.information(
             self, "Export complete",
             f"Wrote {count} plate row(s) from {len(orders)} order(s).")
-
-    def _delete_order(self, order) -> None:
-        name = order.title or order.customer_name or f"order #{order.id}"
-        reply = QMessageBox.question(
-            self, "Delete order",
-            f"Delete “{name}” and its {len(order.plates)} plate(s)? "
-            "This cannot be undone.",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
-        )
-        if reply == QMessageBox.Yes:
-            self.db.delete_order(order.id)
-            self.window._refresh_data_views()
