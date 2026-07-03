@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS orders (
     date_time             TEXT    NOT NULL,
     notes                 TEXT    NOT NULL DEFAULT '',
     pricing_mode          TEXT    NOT NULL DEFAULT 'order_level',
+    status                TEXT    NOT NULL DEFAULT 'completed',
     final_price           REAL,
     profit                REAL,
     quantity              INTEGER NOT NULL DEFAULT 1,
@@ -77,10 +78,30 @@ class Database:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.executescript(SCHEMA)
+        self._migrate()
         self._seed_settings()
 
     def close(self) -> None:
         self.conn.close()
+
+    # -- migrations ---------------------------------------------------------
+    def _migrate(self) -> None:
+        """Additive migrations for databases created by earlier versions.
+
+        The schema above uses ``CREATE TABLE IF NOT EXISTS``, so a table made by
+        an older build is never altered by it. Bring such tables up to date by
+        adding any columns they are missing (defaults keep old rows valid).
+        """
+        cols = {row["name"] for row in self.conn.execute("PRAGMA table_info(orders)")}
+        with self.conn:
+            if "status" not in cols:
+                self.conn.execute(
+                    "ALTER TABLE orders ADD COLUMN status TEXT NOT NULL "
+                    "DEFAULT 'completed'"
+                )
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)"
+            )
 
     # -- settings -----------------------------------------------------------
     def _seed_settings(self) -> None:
@@ -123,6 +144,7 @@ class Database:
             date_time=str_to_dt(row["date_time"]),
             notes=row["notes"],
             pricing_mode=row["pricing_mode"],
+            status=row["status"],
             final_price=row["final_price"],
             profit=row["profit"],
             quantity=row["quantity"],
@@ -170,13 +192,14 @@ class Database:
         order.created_at = created
         cur = self.conn.execute(
             """INSERT INTO orders
-               (title, customer_name, date_time, notes, pricing_mode,
+               (title, customer_name, date_time, notes, pricing_mode, status,
                 final_price, profit, quantity, bulk_discount_percent,
                 is_scratch, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 order.title, order.customer_name, dt_to_str(order.date_time),
-                order.notes, order.pricing_mode, order.final_price, order.profit,
+                order.notes, order.pricing_mode, order.status,
+                order.final_price, order.profit,
                 order.quantity, order.bulk_discount_percent,
                 int(order.is_scratch), dt_to_str(created),
             ),
@@ -187,12 +210,13 @@ class Database:
         self.conn.execute(
             """UPDATE orders SET
                  title=?, customer_name=?, date_time=?, notes=?, pricing_mode=?,
-                 final_price=?, profit=?, quantity=?, bulk_discount_percent=?,
-                 is_scratch=?
+                 status=?, final_price=?, profit=?, quantity=?,
+                 bulk_discount_percent=?, is_scratch=?
                WHERE id=?""",
             (
                 order.title, order.customer_name, dt_to_str(order.date_time),
-                order.notes, order.pricing_mode, order.final_price, order.profit,
+                order.notes, order.pricing_mode, order.status,
+                order.final_price, order.profit,
                 order.quantity, order.bulk_discount_percent,
                 int(order.is_scratch), order.id,
             ),
@@ -298,11 +322,15 @@ class Database:
         material: Optional[str] = None,
         reprint_only: bool = False,
         include_scratch: bool = False,
+        status: Optional[str] = None,
     ) -> list[Order]:
         clauses = []
         params: list = []
         if not include_scratch:
             clauses.append("is_scratch = 0")
+        if status is not None:
+            clauses.append("status = ?")
+            params.append(status)
         if customer:
             clauses.append("customer_name LIKE ?")
             params.append(f"%{customer}%")

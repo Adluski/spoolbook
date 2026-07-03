@@ -9,7 +9,6 @@ from __future__ import annotations
 from datetime import datetime, time
 
 from PySide6.QtCore import QDate, Qt
-from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -25,33 +24,14 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QTreeWidget,
-    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
-from .. import calculations as calc
 from ..csv_export import write_csv
-from ..config import MATERIAL_SOURCE_LABELS, MATERIALS, PRICING_MODE_LABELS
-from .theme import NEGATIVE, POSITIVE
-from .widgets import PageHeader, fmt_grams, fmt_minutes, fmt_money
-
-COLUMNS = ["Date · Plate", "Customer · Material", "Title · Source",
-           "Weight", "Time", "COGS", "Price", "Profit", "Margin"]
-NUMERIC_COLS = {3, 4, 5, 6, 7, 8}
-
-
-class _Item(QTreeWidgetItem):
-    """Tree item that sorts numeric columns by stored value, not text."""
-
-    def __lt__(self, other: "_Item") -> bool:
-        tree = self.treeWidget()
-        col = tree.sortColumn() if tree else 0
-        a = self.data(col, Qt.UserRole)
-        b = other.data(col, Qt.UserRole)
-        if a is not None and b is not None:
-            return a < b
-        return self.text(col) < other.text(col)
+from ..config import MATERIALS
+from .orders_tree import COLUMNS, build_order_item
+from .widgets import PageHeader
 
 
 class HistoryView(QWidget):
@@ -189,7 +169,8 @@ class HistoryView(QWidget):
         self.refresh()
 
     def _current_filters(self) -> dict:
-        filters: dict = {}
+        # History is realized orders only; planned prints live in the Queue.
+        filters: dict = {"status": "completed"}
         text = self.customer_edit.text().strip()
         if text:
             filters["customer"] = text
@@ -214,80 +195,11 @@ class HistoryView(QWidget):
         self.tree.setSortingEnabled(False)
         self.tree.clear()
         for order in orders:
-            self.tree.addTopLevelItem(self._order_item(order, settings))
+            self.tree.addTopLevelItem(build_order_item(order, settings))
         self.tree.setSortingEnabled(True)
 
         n = len(orders)
         self.count_label.setText(f"{n} order{'' if n == 1 else 's'}")
-
-    def _order_item(self, order, settings) -> _Item:
-        rollup = calc.order_rollup(order, settings)
-        total_weight = sum(p.weight_grams for p in order.plates)
-        total_time = sum(p.print_time_minutes for p in order.plates)
-
-        item = _Item()
-        item.order = order
-        item.plate = None
-        item.setText(0, order.date_time.strftime("%d %b %Y"))
-        item.setData(0, Qt.UserRole, order.date_time.timestamp())
-        item.setToolTip(0, order.date_time.strftime("%d %b %Y  %H:%M")
-                        + f"   ·   {PRICING_MODE_LABELS[order.pricing_mode]}")
-        item.setText(1, order.customer_name or "—")
-        item.setText(2, order.title or "—")
-        self._set_numeric(item, 3, total_weight, fmt_grams(total_weight))
-        self._set_numeric(item, 4, total_time, fmt_minutes(total_time))
-        self._set_numeric(item, 5, rollup["total_cogs"], fmt_money(rollup["total_cogs"]))
-        self._set_numeric(item, 6, rollup["final_price"], fmt_money(rollup["final_price"]))
-        self._set_numeric(item, 7, rollup["profit"], fmt_money(rollup["profit"]),
-                          tone_positive=rollup["profit"] >= 0)
-        self._set_numeric(item, 8, rollup["margin_percent"],
-                          f"{rollup['margin_percent']:.1f}%")
-
-        font = item.font(0)
-        font.setBold(True)
-        for c in range(len(COLUMNS)):
-            item.setFont(c, font)
-
-        for plate in order.plates:
-            item.addChild(self._plate_item(plate, order))
-        return item
-
-    def _plate_item(self, plate, order) -> _Item:
-        child = _Item()
-        child.order = order
-        child.plate = plate
-        label = plate.plate_label or "Plate"
-        if plate.is_reprint:
-            label = "↻ " + label
-        child.setText(0, label)
-        if plate.is_reprint and plate.linked_plate_id:
-            child.setToolTip(0, f"Reprint of plate #{plate.linked_plate_id}")
-        child.setText(1, plate.material_type)
-        child.setText(2, MATERIAL_SOURCE_LABELS.get(plate.material_source,
-                                                    plate.material_source))
-        self._set_numeric(child, 3, plate.weight_grams, fmt_grams(plate.weight_grams))
-        self._set_numeric(child, 4, plate.print_time_minutes,
-                          fmt_minutes(plate.print_time_minutes))
-        pcogs = calc.plate_cogs(plate)
-        self._set_numeric(child, 5, pcogs, fmt_money(pcogs))
-        if order.pricing_mode == "per_plate":
-            self._set_numeric(child, 6, plate.final_price or 0,
-                              fmt_money(plate.final_price))
-            self._set_numeric(child, 7, plate.profit or 0,
-                              fmt_money(plate.profit),
-                              tone_positive=(plate.profit or 0) >= 0)
-        else:
-            child.setText(6, "")
-            child.setText(7, "")
-        child.setText(8, "")
-        return child
-
-    def _set_numeric(self, item, col, value, text, tone_positive=None) -> None:
-        item.setText(col, text)
-        item.setData(col, Qt.UserRole, float(value))
-        item.setTextAlignment(col, Qt.AlignRight | Qt.AlignVCenter)
-        if tone_positive is not None:
-            item.setForeground(col, QBrush(QColor(POSITIVE if tone_positive else NEGATIVE)))
 
     # -- actions ------------------------------------------------------------
     def _on_double_click(self, item, _column) -> None:

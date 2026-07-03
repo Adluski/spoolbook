@@ -27,6 +27,7 @@ from ..config import APP_NAME, APP_TAGLINE
 SECTIONS = [
     ("calculator", "Calculator"),
     ("new_order", "New order"),
+    ("queue", "Queue"),
     ("history", "History"),
     ("dashboard", "Dashboard"),
     ("settings", "Settings"),
@@ -119,6 +120,7 @@ class MainWindow(QWidget):
         from .dashboard_view import DashboardView
         from .history_view import HistoryView
         from .order_entry_view import OrderEntryView
+        from .queue_view import QueueView
         from .settings_view import SettingsView
 
         entry = OrderEntryView(self.db)
@@ -128,6 +130,9 @@ class MainWindow(QWidget):
         calculator = CalculatorView(self.db)
         calculator.convert_requested.connect(self.open_calculator_conversion)
         self.set_page("calculator", calculator)
+
+        queue = QueueView(self.db, self)
+        self.set_page("queue", queue)
 
         history = HistoryView(self.db, self)
         self.set_page("history", history)
@@ -154,7 +159,10 @@ class MainWindow(QWidget):
 
     def _on_order_saved(self, order_id: int) -> None:
         self._refresh_data_views()
-        self.go_to("history")
+        # Land on the screen the order just went to: queued prints in the Queue,
+        # realized ones in History.
+        saved = self.db.get_order(order_id)
+        self.go_to("queue" if saved and saved.status == "queued" else "history")
 
     def open_order_for_edit(self, order) -> None:
         page = self._pages.get("new_order")

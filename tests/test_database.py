@@ -142,3 +142,71 @@ def test_scratch_orders_excluded_by_default(db):
                         plates=[make_plate()]))
     assert len(db.list_orders()) == 1
     assert len(db.list_orders(include_scratch=True)) == 2
+
+
+# -- order status (queue) ---------------------------------------------------
+def test_status_defaults_to_completed(db):
+    oid = db.save_order(Order(customer_name="A", plates=[make_plate()]))
+    assert db.get_order(oid).status == "completed"
+
+
+def test_queued_orders_saved_and_filtered_by_status(db):
+    db.save_order(Order(customer_name="done", status="completed",
+                        plates=[make_plate()]))
+    db.save_order(Order(customer_name="planned", status="queued",
+                        plates=[make_plate()]))
+    assert len(db.list_orders()) == 2  # no status filter -> both
+    assert [o.customer_name for o in db.list_orders(status="completed")] == ["done"]
+    assert [o.customer_name for o in db.list_orders(status="queued")] == ["planned"]
+
+
+def test_status_survives_roundtrip_and_update(db):
+    order = Order(customer_name="P", status="queued", plates=[make_plate()])
+    db.save_order(order)
+    # Marking complete flips status and records the actual final price.
+    order.status = "completed"
+    order.final_price = 250.0
+    db.save_order(order)
+    reloaded = db.get_order(order.id)
+    assert reloaded.status == "completed"
+    assert reloaded.final_price == 250.0
+
+
+def test_migration_adds_status_to_legacy_db(tmp_path):
+    """A DB created before the status column is upgraded on open, with existing
+    rows defaulting to 'completed' so old data keeps counting on the dashboard."""
+    import sqlite3
+
+    path = tmp_path / "legacy.db"
+    con = sqlite3.connect(path)
+    con.executescript(
+        """
+        CREATE TABLE orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL DEFAULT '',
+            customer_name TEXT NOT NULL DEFAULT '',
+            date_time TEXT NOT NULL,
+            notes TEXT NOT NULL DEFAULT '',
+            pricing_mode TEXT NOT NULL DEFAULT 'order_level',
+            final_price REAL, profit REAL,
+            quantity INTEGER NOT NULL DEFAULT 1,
+            bulk_discount_percent REAL NOT NULL DEFAULT 0,
+            is_scratch INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        );
+        """
+    )
+    con.execute(
+        "INSERT INTO orders (title, customer_name, date_time, created_at) "
+        "VALUES ('old', 'Legacy', '2024-01-01 10:00:00', '2024-01-01 10:00:00')"
+    )
+    con.commit()
+    con.close()
+
+    db = Database(path)  # __init__ runs _migrate
+    cols = {r["name"] for r in db.conn.execute("PRAGMA table_info(orders)")}
+    assert "status" in cols
+    loaded = db.list_orders()
+    assert len(loaded) == 1
+    assert loaded[0].status == "completed"
+    db.close()

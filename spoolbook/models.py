@@ -53,6 +53,9 @@ class Order:
     date_time: datetime = field(default_factory=datetime.now)
     notes: str = ""
     pricing_mode: str = "order_level"   # order_level | per_plate
+    # queued  = a planned print not yet done (shown in the Queue, excluded from
+    #           dashboard totals). completed = a realized order.
+    status: str = "completed"           # completed | queued
     # Used only in order_level mode. final_price is a manual override (defaults
     # to the suggested price). profit is always derived as final_price − COGS;
     # the stored value is only a snapshot and is never trusted over that

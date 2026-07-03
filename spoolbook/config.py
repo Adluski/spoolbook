@@ -28,6 +28,12 @@ PRICING_MODE_LABELS = {
     "per_plate": "Per-plate price",
 }
 
+# An order is either a realized job (completed) or a planned one waiting in the
+# print queue (queued). Only completed orders count towards dashboard totals.
+ORDER_STATUSES = ("completed", "queued")
+STATUS_COMPLETED = "completed"
+STATUS_QUEUED = "queued"
+
 # --- Default settings ------------------------------------------------------
 # These seed the settings table on first run and back the "restore defaults"
 # action. Editing settings in-app NEVER rewrites historical plates: every

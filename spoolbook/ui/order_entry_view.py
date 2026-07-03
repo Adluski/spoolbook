@@ -16,6 +16,7 @@ from datetime import datetime
 
 from PySide6.QtCore import QDate, QDateTime, Qt, QTime, Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDateTimeEdit,
     QFormLayout,
     QFrame,
@@ -249,6 +250,13 @@ class OrderEntryView(QWidget):
         self.error_label = QLabel("")
         self.error_label.setObjectName("StatusError")
         save_col.addWidget(self.error_label, 0, Qt.AlignRight)
+        self.queue_check = QCheckBox("Save to print queue (planned print)")
+        self.queue_check.setToolTip(
+            "Store this as a planned print in the Queue instead of a realized "
+            "order. Queued prints are excluded from the dashboard until you "
+            "mark them complete.")
+        self.queue_check.toggled.connect(self._on_queue_toggle)
+        save_col.addWidget(self.queue_check, 0, Qt.AlignRight)
         self.save_btn = QPushButton("Save order")
         self.save_btn.setObjectName("PrimaryButton")
         self.save_btn.setCursor(Qt.PointingHandCursor)
@@ -256,6 +264,9 @@ class OrderEntryView(QWidget):
         save_col.addWidget(self.save_btn)
         lay.addLayout(save_col)
         return bar
+
+    def _on_queue_toggle(self, queued: bool) -> None:
+        self.save_btn.setText("Save to queue" if queued else "Save order")
 
     def _labeled(self, caption: str, widget: QWidget) -> QVBoxLayout:
         box = QVBoxLayout()
@@ -388,6 +399,7 @@ class OrderEntryView(QWidget):
         self.datetime_edit.setDateTime(_to_qdatetime(self.order.date_time))
         self.quantity_spin.setValue(1)
         self.discount_spin.setValue(0)
+        self.queue_check.setChecked(False)
         self.error_label.clear()
         self.pricing_toggle.set_value("order_level")
         self.order.pricing_mode = "order_level"
@@ -415,6 +427,7 @@ class OrderEntryView(QWidget):
         self.datetime_edit.setDateTime(_to_qdatetime(order.date_time))
         self.quantity_spin.setValue(order.quantity)
         self.discount_spin.setValue(order.bulk_discount_percent)
+        self.queue_check.setChecked(order.status == "queued")
         self.error_label.clear()
         self.pricing_toggle.set_value(order.pricing_mode)
         self.plate_editor.set_settings(self.settings)
@@ -457,6 +470,7 @@ class OrderEntryView(QWidget):
         o.quantity = self.quantity_spin.value()
         o.bulk_discount_percent = self.discount_spin.value()
         o.pricing_mode = self.pricing_toggle.value()
+        o.status = "queued" if self.queue_check.isChecked() else "completed"
         o.is_scratch = False
         o.plates = plates
 

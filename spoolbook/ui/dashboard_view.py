@@ -180,7 +180,9 @@ class DashboardView(QWidget):
             return
         settings = self.db.get_settings()
         start, end = self._range()
-        orders = self.db.list_orders(start=start, end=end)
+        # Only realized orders count towards revenue/profit/COGS; queued
+        # (planned) prints are excluded entirely.
+        orders = self.db.list_orders(start=start, end=end, status="completed")
 
         revenue = profit = cogs = 0.0
         by_mat = {m: {"plates": 0, "weight": 0.0, "cogs": 0.0,
