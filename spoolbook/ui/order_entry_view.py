@@ -5,9 +5,10 @@ the summary bar's final-price and profit are the editable numbers (and the
 per-plate price/profit columns hide); in per-plate mode those columns become
 editable and the summary shows their totals read-only.
 
-Order-level final price defaults to the suggested price and profit defaults to
-price − COGS, but both are manual overrides: once you touch one it stops
-tracking, and the two are never synced to each other.
+Order-level final price defaults to the suggested price but is a manual
+override: once you touch it, it stops tracking the suggestion. Profit is always
+derived (final price − COGS) and shown read-only, so it can never drift away
+from the price.
 """
 from __future__ import annotations
 
@@ -65,7 +66,6 @@ class OrderEntryView(QWidget):
         self.settings = db.get_settings()
         self.order = Order()
         self._final_touched = False
-        self._profit_touched = False
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -284,8 +284,13 @@ class OrderEntryView(QWidget):
         return wrap
 
     def _make_profit_editor(self) -> QWidget:
+        # Profit is derived (final price − COGS), so it is shown read-only and
+        # can never be edited into disagreement with the price.
         self.profit_spin = money_spin(minimum=-100_000_000, maximum=100_000_000)
         self.profit_spin.setFixedWidth(106)
+        self.profit_spin.setReadOnly(True)
+        self.profit_spin.setFocusPolicy(Qt.NoFocus)
+        self.profit_spin.setObjectName("DerivedSpin")
         return self.profit_spin
 
     # -- wiring -------------------------------------------------------------
@@ -295,7 +300,6 @@ class OrderEntryView(QWidget):
         self.quantity_spin.valueChanged.connect(self._recompute)
         self.discount_spin.valueChanged.connect(self._recompute)
         self.final_spin.valueChanged.connect(self._on_final_edited)
-        self.profit_spin.valueChanged.connect(self._on_profit_edited)
 
     # -- modes --------------------------------------------------------------
     def _on_mode_changed(self, mode: str) -> None:
@@ -333,8 +337,8 @@ class OrderEntryView(QWidget):
             if not self._final_touched:
                 self._set_spin(self.final_spin, calc.round_money(suggested))
             final = self.final_spin.value()
-            if not self._profit_touched:
-                self._set_spin(self.profit_spin, calc.round_money(final - cogs))
+            # Profit always tracks the price — it is never an independent value.
+            self._set_spin(self.profit_spin, calc.round_money(final - cogs))
             profit = self.profit_spin.value()
             self._set_margin(self.margin_label_ol, final, profit)
         else:
@@ -360,19 +364,16 @@ class OrderEntryView(QWidget):
         label.style().polish(label)
 
     def _on_final_edited(self) -> None:
-        # Editing the price does NOT move profit — they are decoupled.
+        # Editing the price re-derives profit (final − COGS) so the two stay
+        # locked together.
         self._final_touched = True
-        self._set_margin(self.margin_label_ol,
-                         self.final_spin.value(), self.profit_spin.value())
-
-    def _on_profit_edited(self) -> None:
-        self._profit_touched = True
-        self._set_margin(self.margin_label_ol,
-                         self.final_spin.value(), self.profit_spin.value())
+        cogs = calc.total_cogs(self.plate_editor.plates())
+        final = self.final_spin.value()
+        self._set_spin(self.profit_spin, calc.round_money(final - cogs))
+        self._set_margin(self.margin_label_ol, final, self.profit_spin.value())
 
     def _reset_to_suggested(self) -> None:
         self._final_touched = False
-        self._profit_touched = False
         self._recompute()
 
     # -- load states --------------------------------------------------------
@@ -380,7 +381,6 @@ class OrderEntryView(QWidget):
         self.settings = self.db.get_settings()
         self.order = Order(date_time=datetime.now())
         self._final_touched = False
-        self._profit_touched = False
         self.title_label.setText("New order")
         self.title_edit.clear()
         self.customer_edit.clear()
@@ -422,14 +422,11 @@ class OrderEntryView(QWidget):
         self.plate_editor.set_plates([p for p in order.plates])
         self._apply_mode_visibility(order.pricing_mode)
         if order.pricing_mode == "order_level":
-            # Stored overrides are respected as-is; mark touched so recompute
-            # does not clobber them.
+            # A stored final price is respected as-is; mark it touched so
+            # recompute does not clobber it. Profit is re-derived from it.
             self._final_touched = order.final_price is not None
-            self._profit_touched = order.profit is not None
             if order.final_price is not None:
                 self._set_spin(self.final_spin, order.final_price)
-            if order.profit is not None:
-                self._set_spin(self.profit_spin, order.profit)
         self._recompute()
 
     def ensure_new_mode(self) -> None:

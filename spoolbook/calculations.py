@@ -106,10 +106,13 @@ def resolved_order_level_price(order: Order, settings: dict) -> float:
 
 
 def resolved_order_level_profit(order: Order, settings: dict) -> float:
-    """Order-level profit: the manual override if set (decoupled from price),
-    else final_price − COGS."""
-    if order.profit is not None:
-        return order.profit
+    """Order-level profit is always final price − COGS.
+
+    It is a derived quantity, never an independent override: a manually set
+    final price is reflected in profit immediately, so the two can never drift
+    apart. Any value stored in ``order.profit`` is ignored here on purpose —
+    it exists only as a persisted snapshot of this same subtraction.
+    """
     return resolved_order_level_price(order, settings) - total_cogs(order.plates)
 
 

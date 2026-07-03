@@ -76,13 +76,29 @@ def test_order_level_profit_defaults_to_price_minus_cogs():
     assert calc.order_profit(order, SETTINGS) == pytest.approx(150.0)
 
 
-def test_order_level_profit_override_is_respected_and_decoupled():
+def test_order_level_profit_always_tracks_price_minus_cogs():
+    # Profit is derived, so a stale/independent stored value must be ignored
+    # and profit must move with the price.
     order = Order(pricing_mode="order_level", plates=[plate()], final_price=300.0)
     order.profit = 42.0  # deliberately unrelated to price - cogs
-    assert calc.order_profit(order, SETTINGS) == 42.0
-    # Changing price does not move the manually-set profit.
+    assert calc.order_profit(order, SETTINGS) == pytest.approx(150.0)  # 300 - 150
     order.final_price = 999.0
-    assert calc.order_profit(order, SETTINGS) == 42.0
+    assert calc.order_profit(order, SETTINGS) == pytest.approx(849.0)  # 999 - 150
+
+
+def test_order_level_profit_regression_manual_price_override():
+    # Regression for the reported bug: 16 g, 2 h, PLA, own filament, with rate
+    # snapshots that make COGS = ₹64.40. Final price was manually overridden to
+    # ₹200, but a stale stored profit of ₹49.56 (the profit at the *suggested*
+    # price) was displayed instead of ₹200 − ₹64.40 = ₹135.60.
+    p = plate(weight_grams=16.0, print_time_minutes=120,
+              material_type="PLA", material_source="own",
+              material_rate_per_gram=0.90, machine_rate_per_hour=25.0)
+    assert calc.plate_cogs(p) == pytest.approx(64.40)  # 14.40 material + 50.00 machine
+    order = Order(pricing_mode="order_level", plates=[p], final_price=200.0)
+    order.profit = 49.56  # the stale, wrong value the bug displayed
+    assert calc.order_profit(order, SETTINGS) == pytest.approx(135.60)
+    assert calc.order_rollup(order, SETTINGS)["profit"] == pytest.approx(135.60)
 
 
 def test_order_level_price_defaults_to_suggested_when_unset():

@@ -53,8 +53,10 @@ class Order:
     date_time: datetime = field(default_factory=datetime.now)
     notes: str = ""
     pricing_mode: str = "order_level"   # order_level | per_plate
-    # Used only in order_level mode. Manual overrides — profit is NOT kept in
-    # sync with final_price; each is stored independently once set.
+    # Used only in order_level mode. final_price is a manual override (defaults
+    # to the suggested price). profit is always derived as final_price − COGS;
+    # the stored value is only a snapshot and is never trusted over that
+    # subtraction (see calculations.resolved_order_level_profit).
     final_price: Optional[float] = None
     profit: Optional[float] = None
     quantity: int = 1
