@@ -305,11 +305,52 @@ def test_seed_per_plate_prices_even_split_when_zero_cogs():
 
 
 def test_seed_per_plate_prices_skips_already_priced_plates():
-    already_priced = qty_plate(final_price=999.0)   # cogs 120, hand-set price
-    unpriced = qty_plate()                           # cogs 120
+    already_priced = qty_plate(final_price=30.0)   # cogs 120, hand-set price
+    unpriced = qty_plate()                          # cogs 120
     seeds = calc.seed_per_plate_prices([already_priced, unpriced], 100.0)
     assert 0 not in seeds
-    assert seeds[1] == pytest.approx(50.0)  # equal cogs -> 50/50, only unpriced gets a seed
+    # Remainder after the hand-set price: 100 - 30 = 70, all to the one
+    # unpriced plate (it's the only member of the unpriced group).
+    assert seeds[1] == pytest.approx(70.0)
+
+
+def test_seed_per_plate_prices_mixed_sums_to_order_price():
+    # Regression for the reported leak: seeding must come from what's LEFT
+    # after already-priced plates, not from the full order price again.
+    priced = qty_plate(final_price=300.0)   # cogs 120, hand-set
+    unpriced = qty_plate()                   # cogs 120
+    seeds = calc.seed_per_plate_prices([priced, unpriced], 500.0)
+    assert 0 not in seeds
+    assert seeds[1] == pytest.approx(200.0)  # remainder: 500 - 300
+    total = priced.final_price + seeds[1]
+    assert total == pytest.approx(500.0)  # the invariant: sums back to order_price
+
+
+def test_seed_per_plate_prices_negative_remainder_clamps_to_zero():
+    # Hand-set prices already exceed the order price: nothing left to give
+    # the unpriced plate, but it must not go negative or crash.
+    priced = qty_plate(final_price=600.0)
+    unpriced = qty_plate()
+    seeds = calc.seed_per_plate_prices([priced, unpriced], 500.0)
+    assert seeds[1] == pytest.approx(0.0)
+
+
+def test_seed_per_plate_prices_all_priced_returns_empty():
+    p1 = qty_plate(final_price=100.0)
+    p2 = qty_plate(final_price=200.0)
+    assert calc.seed_per_plate_prices([p1, p2], 500.0) == {}
+
+
+def test_seed_per_plate_prices_zero_cogs_among_unpriced_splits_evenly():
+    # The priced plate's cogs must not pollute the unpriced-only cogs total
+    # used for the even-split fallback.
+    priced = qty_plate(final_price=40.0)  # cogs 120, hand-set - irrelevant to the split
+    unpriced_a = qty_plate(material_source="customer", print_time_minutes=0)  # cogs 0
+    unpriced_b = qty_plate(material_source="customer", print_time_minutes=0)  # cogs 0
+    seeds = calc.seed_per_plate_prices([priced, unpriced_a, unpriced_b], 100.0)
+    assert 0 not in seeds
+    assert seeds[1] == pytest.approx(30.0)  # remainder 60, split evenly
+    assert seeds[2] == pytest.approx(30.0)
 
 
 # -- money rounding ---------------------------------------------------------
