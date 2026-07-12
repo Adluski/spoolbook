@@ -347,39 +347,35 @@ class OrderEntryView(QWidget):
 
     # -- recompute ----------------------------------------------------------
     def _recompute(self) -> None:
-        plates = self.plate_editor.plates()
-        markup = self.settings["markup_multiplier"]
-        buffer = self.settings["pellet_buffer_percent"]
-        material = calc.total_material_cost(plates)
-        machine = calc.total_machine_cost(plates)
-        cogs = material + machine
-        qty = self.quantity_spin.value()
-        discount = self.discount_spin.value()
-        suggested = calc.suggested_price(plates, markup, buffer, qty, discount)
+        self._sync_order_from_widgets()
+        rollup = calc.order_rollup(self.order, self.settings)
+        qty = self.order.quantity
 
-        self.chip_material.set_value(fmt_money(material))
-        self.chip_machine.set_value(fmt_money(machine))
-        self.chip_cogs.set_value(fmt_money(cogs))
-        self.chip_suggested.set_value(fmt_money(suggested), tone="accent")
+        # These chips are always PER-UNIT by design (order_rollup's
+        # total_cogs convention) — do not scale them by quantity.
+        self.chip_material.set_value(fmt_money(rollup["total_material_cost"]))
+        self.chip_machine.set_value(fmt_money(rollup["total_machine_cost"]))
+        self.chip_cogs.set_value(fmt_money(rollup["total_cogs"]))
+        self.chip_suggested.set_value(fmt_money(rollup["suggested_price"]), tone="accent")
         self.chip_cogs.setToolTip(
             f"Per unit — order quantity is ×{qty}" if qty > 1 else "")
 
+        # final_price / profit / margin are WHOLE-JOB (x quantity) figures.
         if self.order.pricing_mode == "order_level":
             if not self._final_touched:
-                self._set_spin(self.final_spin, calc.round_money(suggested))
-            final = self.final_spin.value()
+                self._set_spin(self.final_spin, calc.round_money(rollup["final_price"]))
+            final = rollup["final_price"]
+            profit = rollup["profit"]
             # Profit always tracks the price — it is never an independent value.
-            self._set_spin(self.profit_spin, calc.round_money(final - cogs))
-            profit = self.profit_spin.value()
+            self._set_spin(self.profit_spin, calc.round_money(profit))
             self._set_margin(self.margin_label_ol, final, profit)
         else:
-            final = calc.per_plate_final_price(plates)
-            profit = calc.per_plate_profit(plates)
+            final = rollup["final_price"]
+            profit = rollup["profit"]
             self.chip_pp_price.set_value(fmt_money(final), tone="accent")
             self.chip_pp_profit.set_value(
                 fmt_money(profit), tone="positive" if profit >= 0 else "negative")
-            self.chip_pp_margin.set_value(
-                f"{calc.margin_percent(final, profit):.1f}%")
+            self.chip_pp_margin.set_value(f"{rollup['margin_percent']:.1f}%")
 
     def _set_spin(self, spin, value) -> None:
         spin.blockSignals(True)
@@ -395,13 +391,10 @@ class OrderEntryView(QWidget):
         label.style().polish(label)
 
     def _on_final_edited(self) -> None:
-        # Editing the price re-derives profit (final − COGS) so the two stay
-        # locked together.
+        # Editing the price re-derives profit through the roll-up (final −
+        # quantity-scaled COGS), so the two can never drift apart.
         self._final_touched = True
-        cogs = calc.total_cogs(self.plate_editor.plates())
-        final = self.final_spin.value()
-        self._set_spin(self.profit_spin, calc.round_money(final - cogs))
-        self._set_margin(self.margin_label_ol, final, self.profit_spin.value())
+        self._recompute()
 
     def _reset_to_suggested(self) -> None:
         self._final_touched = False
