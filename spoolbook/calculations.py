@@ -123,13 +123,13 @@ def resolved_order_level_profit(order: Order, settings: dict) -> float:
 
 def order_final_price(order: Order, settings: dict) -> float:
     if order.pricing_mode == "per_plate":
-        return per_plate_final_price(order.plates)
+        return per_plate_final_price(order.plates) * order.quantity
     return resolved_order_level_price(order, settings)
 
 
 def order_profit(order: Order, settings: dict) -> float:
     if order.pricing_mode == "per_plate":
-        return per_plate_profit(order.plates)
+        return per_plate_profit(order.plates) * order.quantity
     return resolved_order_level_profit(order, settings)
 
 
@@ -174,9 +174,9 @@ def plate_attributions(order: Order, settings: dict) -> list[dict]:
         return [
             {
                 "material_type": p.material_type,
-                "cogs": plate_cogs(p),
-                "revenue": p.final_price or 0.0,
-                "profit": p.profit or 0.0,
+                "cogs": plate_cogs(p) * order.quantity,
+                "revenue": (p.final_price or 0.0) * order.quantity,
+                "profit": (p.profit or 0.0) * order.quantity,
             }
             for p in plates
         ]

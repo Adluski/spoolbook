@@ -226,6 +226,43 @@ def test_attributions_sum_back_order_level_qty_gt_one():
     assert sum(r["cogs"] for r in rows) == pytest.approx(calc.total_cogs(order.plates))
 
 
+def test_per_plate_final_price_and_profit_qty_one_unchanged():
+    order = Order(
+        pricing_mode="per_plate", quantity=1,
+        plates=[qty_plate(final_price=200.0, profit=50.0),
+                qty_plate(final_price=120.0, profit=30.0)],
+    )
+    assert calc.order_final_price(order, SETTINGS) == pytest.approx(320.0)
+    assert calc.order_profit(order, SETTINGS) == pytest.approx(80.0)
+
+
+def test_per_plate_final_price_and_profit_scale_with_quantity():
+    order = Order(
+        pricing_mode="per_plate", quantity=3,
+        plates=[qty_plate(final_price=200.0, profit=50.0),
+                qty_plate(final_price=120.0, profit=30.0)],
+    )
+    # Per-run sums are 320 revenue / 80 profit; the whole job runs 3x.
+    assert calc.order_final_price(order, SETTINGS) == pytest.approx(320.0 * 3)
+    assert calc.order_profit(order, SETTINGS) == pytest.approx(80.0 * 3)
+    # The per-plate helpers themselves stay pure per-run sums.
+    assert calc.per_plate_final_price(order.plates) == pytest.approx(320.0)
+    assert calc.per_plate_profit(order.plates) == pytest.approx(80.0)
+
+
+def test_attributions_sum_back_per_plate_qty_gt_one():
+    order = Order(
+        pricing_mode="per_plate", quantity=3,
+        plates=[qty_plate(material_type="PLA", final_price=200.0, profit=50.0),
+                qty_plate(material_type="PETG", material_rate_per_gram=1.2,
+                          machine_rate_per_hour=40.0, final_price=120.0, profit=30.0)],
+    )
+    rows = calc.plate_attributions(order, SETTINGS)
+    assert sum(r["revenue"] for r in rows) == pytest.approx(calc.order_final_price(order, SETTINGS))
+    assert sum(r["profit"] for r in rows) == pytest.approx(calc.order_profit(order, SETTINGS))
+    assert sum(r["cogs"] for r in rows) == pytest.approx(calc.total_cogs(order.plates) * order.quantity)
+
+
 # -- money rounding ---------------------------------------------------------
 def test_round_money_half_up():
     assert calc.round_money(270.375) == 270.38
