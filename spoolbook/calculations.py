@@ -50,6 +50,11 @@ def total_cogs(plates: Sequence[Plate]) -> float:
     return sum(plate_cogs(p) for p in plates)
 
 
+def total_cogs_for_order(order: Order) -> float:
+    """Whole-job COGS: the per-unit total run order.quantity times."""
+    return total_cogs(order.plates) * order.quantity
+
+
 # --- suggested pricing -----------------------------------------------------
 def suggested_unit_price(
     plates: Sequence[Plate],
@@ -113,7 +118,7 @@ def resolved_order_level_profit(order: Order, settings: dict) -> float:
     apart. Any value stored in ``order.profit`` is ignored here on purpose —
     it exists only as a persisted snapshot of this same subtraction.
     """
-    return resolved_order_level_price(order, settings) - total_cogs(order.plates)
+    return resolved_order_level_price(order, settings) - total_cogs_for_order(order)
 
 
 def order_final_price(order: Order, settings: dict) -> float:

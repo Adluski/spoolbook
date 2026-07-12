@@ -158,6 +158,74 @@ def test_empty_order_rollup_is_safe():
     assert calc.plate_attributions(order, SETTINGS) == []
 
 
+# -- quantity scaling ---------------------------------------------------
+# Explicit rates (0.90/g material, 25/h machine) so these never depend on
+# saved settings, matching the reported-bug scenario: one plate at COGS 120.
+def qty_plate(**kw):
+    base = dict(
+        weight_grams=100.0, print_time_minutes=72, material_type="PLA",
+        material_source="own", material_rate_per_gram=0.90,
+        machine_rate_per_hour=25.0,
+    )
+    base.update(kw)
+    return Plate(**base)  # cogs = 90 material + 30 machine = 120
+
+
+def test_total_cogs_for_order_scales_by_quantity():
+    p = qty_plate()
+    order = Order(plates=[p], quantity=3)
+    assert calc.total_cogs(order.plates) == pytest.approx(120.0)  # per-unit, unchanged
+    assert calc.total_cogs_for_order(order) == pytest.approx(360.0)
+
+
+def test_total_cogs_for_order_qty_one_matches_total_cogs():
+    p = qty_plate()
+    order = Order(plates=[p], quantity=1)
+    assert calc.total_cogs_for_order(order) == pytest.approx(calc.total_cogs(order.plates))
+
+
+def test_order_level_profit_qty_one_unchanged():
+    p = qty_plate()
+    order = Order(pricing_mode="order_level", plates=[p], quantity=1, final_price=300.0)
+    assert calc.order_profit(order, SETTINGS) == pytest.approx(300.0 - 120.0)
+
+
+def test_order_level_profit_scales_cogs_with_quantity():
+    # Regression for the reported bug: COGS 120, qty 3. Profit must subtract
+    # COGS x3, not the unscaled per-unit COGS.
+    p = qty_plate()
+    order = Order(pricing_mode="order_level", plates=[p], quantity=3, final_price=1000.0)
+    buggy_profit = 1000.0 - 120.0  # what the old code produced
+    true_profit = 1000.0 - 120.0 * 3
+    assert calc.order_profit(order, SETTINGS) == pytest.approx(true_profit)
+    assert calc.order_profit(order, SETTINGS) != pytest.approx(buggy_profit)
+    assert calc.order_rollup(order, SETTINGS)["profit"] == pytest.approx(true_profit)
+
+
+def test_order_level_profit_scales_cogs_with_quantity_suggested_price():
+    # Same as above but with the price left at the suggested (unset) value,
+    # so both sides of the subtraction come from live formulas.
+    p = qty_plate()
+    order = Order(pricing_mode="order_level", plates=[p], quantity=3)
+    price = calc.order_final_price(order, SETTINGS)
+    assert calc.order_profit(order, SETTINGS) == pytest.approx(price - 120.0 * 3)
+
+
+def test_attributions_sum_back_order_level_qty_gt_one():
+    order = Order(
+        pricing_mode="order_level", quantity=3, final_price=1500.0,
+        plates=[qty_plate(material_type="PLA"),
+                qty_plate(material_type="PETG", material_rate_per_gram=1.2,
+                          machine_rate_per_hour=40.0)],
+    )
+    rows = calc.plate_attributions(order, SETTINGS)
+    assert sum(r["revenue"] for r in rows) == pytest.approx(calc.order_final_price(order, SETTINGS))
+    assert sum(r["profit"] for r in rows) == pytest.approx(calc.order_profit(order, SETTINGS))
+    # order_level attribution "cogs" stays per-unit, matching order_rollup's
+    # total_cogs convention.
+    assert sum(r["cogs"] for r in rows) == pytest.approx(calc.total_cogs(order.plates))
+
+
 # -- money rounding ---------------------------------------------------------
 def test_round_money_half_up():
     assert calc.round_money(270.375) == 270.38
