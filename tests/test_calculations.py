@@ -285,6 +285,33 @@ def test_attributions_sum_back_per_plate_qty_gt_one():
     assert sum(r["profit"] for r in rows) != pytest.approx(naive_stale_sum)
 
 
+# -- per-plate price seeding on mode switch ----------------------------------
+def test_seed_per_plate_prices_splits_by_cogs_share_and_sums_to_order_price():
+    p1 = qty_plate()                                                    # cogs 120
+    p2 = qty_plate(material_type="PETG", material_rate_per_gram=1.2,
+                   machine_rate_per_hour=40.0)                          # cogs 168
+    seeds = calc.seed_per_plate_prices([p1, p2], 100.0)
+    assert seeds[0] == pytest.approx(100.0 * 120 / 288)
+    assert seeds[1] == pytest.approx(100.0 * 168 / 288)
+    assert sum(seeds.values()) == pytest.approx(100.0)
+
+
+def test_seed_per_plate_prices_even_split_when_zero_cogs():
+    p1 = qty_plate(material_source="customer", print_time_minutes=0)
+    p2 = qty_plate(material_source="customer", print_time_minutes=0)
+    seeds = calc.seed_per_plate_prices([p1, p2], 100.0)
+    assert seeds[0] == pytest.approx(50.0)
+    assert seeds[1] == pytest.approx(50.0)
+
+
+def test_seed_per_plate_prices_skips_already_priced_plates():
+    already_priced = qty_plate(final_price=999.0)   # cogs 120, hand-set price
+    unpriced = qty_plate()                           # cogs 120
+    seeds = calc.seed_per_plate_prices([already_priced, unpriced], 100.0)
+    assert 0 not in seeds
+    assert seeds[1] == pytest.approx(50.0)  # equal cogs -> 50/50, only unpriced gets a seed
+
+
 # -- money rounding ---------------------------------------------------------
 def test_round_money_half_up():
     assert calc.round_money(270.375) == 270.38

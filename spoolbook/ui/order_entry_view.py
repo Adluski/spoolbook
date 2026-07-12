@@ -312,10 +312,30 @@ class OrderEntryView(QWidget):
         self.discount_spin.valueChanged.connect(self._recompute)
         self.final_spin.valueChanged.connect(self._on_final_edited)
 
+    # -- state sync -----------------------------------------------------------
+    def _sync_order_from_widgets(self) -> None:
+        """Push live widget values into self.order so calc functions that
+        need a full Order (plates, quantity, final_price) see the current
+        on-screen state."""
+        self.order.plates = self.plate_editor.plates()
+        self.order.quantity = self.quantity_spin.value()
+        self.order.bulk_discount_percent = self.discount_spin.value()
+        if self.order.pricing_mode == "order_level":
+            self.order.final_price = round(self.final_spin.value(), 2) if self._final_touched else None
+
     # -- modes --------------------------------------------------------------
     def _on_mode_changed(self, mode: str) -> None:
+        seed_prices = None
+        if mode == "per_plate":
+            # Seed blank per-plate prices from their share of the current
+            # order-level price (one run — the roll-up re-applies quantity)
+            # before switching, so unpriced plates don't silently read as 0.
+            self._sync_order_from_widgets()
+            qty = self.order.quantity if self.order.quantity >= 1 else 1
+            order_price = calc.resolved_order_level_price(self.order, self.settings) / qty
+            seed_prices = calc.seed_per_plate_prices(self.order.plates, order_price)
         self.order.pricing_mode = mode
-        self.plate_editor.set_pricing_mode(mode)
+        self.plate_editor.set_pricing_mode(mode, seed_prices)
         self._apply_mode_visibility(mode)
         self._recompute()
 

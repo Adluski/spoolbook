@@ -92,6 +92,27 @@ def per_plate_final_price(plates: Sequence[Plate]) -> float:
     return sum((p.final_price or 0.0) for p in plates)
 
 
+def seed_per_plate_prices(plates: Sequence[Plate], order_price: float) -> dict[int, float]:
+    """Split a per-run order price across plates proportional to each
+    plate's COGS share (even split if total COGS is zero — mirrors
+    plate_attributions' fallback), for seeding per-plate prices on a mode
+    switch. Only plates without an existing price are included — a price
+    already set by hand is never overwritten. ``order_price`` is a per-run
+    figure; callers seeding from a whole-job price must divide by quantity
+    first."""
+    if not plates:
+        return {}
+    cogs_values = [plate_cogs(p) for p in plates]
+    cogs_sum = sum(cogs_values)
+    seeds = {}
+    for i, (p, cogs) in enumerate(zip(plates, cogs_values)):
+        if p.final_price is not None:
+            continue
+        share = (cogs / cogs_sum) if cogs_sum else (1.0 / len(plates))
+        seeds[i] = order_price * share
+    return seeds
+
+
 def per_plate_profit(plates: Sequence[Plate]) -> float:
     """Profit is always price − COGS, never the independently stored
     snapshot (see plate.profit's docstring — it exists only as a

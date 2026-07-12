@@ -208,15 +208,24 @@ class PlateRow(QFrame):
         self.profit.setValue(self.plate.profit)
         self.profit.blockSignals(False)
 
-    def apply_pricing_mode(self, mode: str) -> None:
+    def apply_pricing_mode(self, mode: str, seed_price: float | None = None) -> None:
         self.pricing_mode = mode
         per_plate = mode == "per_plate"
         self.price.setVisible(per_plate)
         self.profit.setVisible(per_plate)
         if per_plate:
-            # Pull the current spin values into the model.
-            self.plate.final_price = round(self.price.value(), 2)
-            self.plate.profit = round(self.profit.value(), 2)
+            if seed_price is not None and self.plate.final_price is None:
+                # Seed a blank price from its share of the order price
+                # instead of silently zeroing it (calc.seed_per_plate_prices).
+                self.plate.final_price = round(seed_price, 2)
+                self.price.blockSignals(True)
+                self.price.setValue(self.plate.final_price)
+                self.price.blockSignals(False)
+            else:
+                # Pull the current spin value into the model (unchanged
+                # price, or a freshly added blank row with no seed context).
+                self.plate.final_price = round(self.price.value(), 2)
+            self._refresh_profit()
 
 
 class PlateRowsEditor(QWidget):
@@ -299,11 +308,11 @@ class PlateRowsEditor(QWidget):
         for row in self._rows:
             row.settings = settings
 
-    def set_pricing_mode(self, mode: str) -> None:
+    def set_pricing_mode(self, mode: str, seed_prices: dict[int, float] | None = None) -> None:
         self.pricing_mode = mode
         self._apply_mode_to_header()
-        for row in self._rows:
-            row.apply_pricing_mode(mode)
+        for i, row in enumerate(self._rows):
+            row.apply_pricing_mode(mode, (seed_prices or {}).get(i))
         self.changed.emit()
 
     # -- rows ---------------------------------------------------------------
