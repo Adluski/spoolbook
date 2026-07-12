@@ -117,7 +117,12 @@ class PlateRow(QFrame):
 
         # -- per-plate price / profit --------------------------------------
         self.price = money_spin(maximum=10_000_000)
+        # Profit is derived (final_price - COGS), so it is shown read-only,
+        # mirroring order_entry_view._make_profit_editor().
         self.profit = money_spin(minimum=-10_000_000, maximum=10_000_000)
+        self.profit.setReadOnly(True)
+        self.profit.setFocusPolicy(Qt.NoFocus)
+        self.profit.setObjectName("DerivedSpin")
         lay.addWidget(_fixed(self.price, W_PRICE))
         lay.addWidget(_fixed(self.profit, W_PROFIT))
 
@@ -136,7 +141,7 @@ class PlateRow(QFrame):
     # -- population ---------------------------------------------------------
     def _populate(self) -> None:
         for w in (self.label_edit, self.material, self.source,
-                  self.weight, self.duration, self.price, self.profit):
+                  self.weight, self.duration, self.price):
             w.blockSignals(True)
         self.label_edit.setText(self.plate.plate_label)
         self.material.setCurrentIndex(max(0, self.material.findData(self.plate.material_type)))
@@ -144,14 +149,14 @@ class PlateRow(QFrame):
         self.weight.setValue(self.plate.weight_grams)
         self.duration.set_minutes(self.plate.print_time_minutes)
         self.price.setValue(self.plate.final_price or 0.0)
-        self.profit.setValue(self.plate.profit or 0.0)
         for w in (self.label_edit, self.material, self.source,
-                  self.weight, self.duration, self.price, self.profit):
+                  self.weight, self.duration, self.price):
             w.blockSignals(False)
         self.badge.setVisible(self.plate.is_reprint)
         if self.plate.is_reprint and self.plate.linked_plate_id:
             self.badge.setToolTip(f"Reprint of plate #{self.plate.linked_plate_id}")
         self._refresh_cogs()
+        self._refresh_profit()
 
     def _connect(self) -> None:
         self.label_edit.textChanged.connect(self._commit)
@@ -160,7 +165,6 @@ class PlateRow(QFrame):
         self.weight.valueChanged.connect(self._commit)
         self.duration.valueChanged.connect(self._commit)
         self.price.valueChanged.connect(self._commit)
-        self.profit.valueChanged.connect(self._commit)
 
     # -- editing ------------------------------------------------------------
     def _material_changed(self) -> None:
@@ -181,7 +185,7 @@ class PlateRow(QFrame):
         p.print_time_minutes = self.duration.minutes()
         if self.pricing_mode == "per_plate":
             p.final_price = round(self.price.value(), 2)
-            p.profit = round(self.profit.value(), 2)
+            self._refresh_profit()
         self._refresh_cogs()
         self.changed.emit()
 
@@ -195,6 +199,14 @@ class PlateRow(QFrame):
             f"Material {fmt_money(material)}  (@ {fmt_money(rate)}/g)\n"
             f"Machine  {fmt_money(machine)}  (@ {fmt_money(mrate)}/h)"
         )
+
+    def _refresh_profit(self) -> None:
+        """Profit is derived (final_price - COGS) and only ever stored as a
+        snapshot; the widget is read-only display, never an input."""
+        self.plate.profit = round((self.plate.final_price or 0.0) - plate_cogs(self.plate), 2)
+        self.profit.blockSignals(True)
+        self.profit.setValue(self.plate.profit)
+        self.profit.blockSignals(False)
 
     def apply_pricing_mode(self, mode: str) -> None:
         self.pricing_mode = mode
