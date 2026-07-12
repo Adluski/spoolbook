@@ -58,6 +58,13 @@ class HistoryView(QWidget):
         self.export_btn.setCursor(Qt.PointingHandCursor)
         self.export_btn.clicked.connect(self._export_csv)
         tl.addWidget(self.export_btn)
+        self.delete_btn = QPushButton("Delete order")
+        self.delete_btn.setObjectName("DangerButton")
+        self.delete_btn.setCursor(Qt.PointingHandCursor)
+        self.delete_btn.setEnabled(False)
+        self.delete_btn.setToolTip("Select an order (or one of its plates) to delete it.")
+        self.delete_btn.clicked.connect(self._delete_selected)
+        tl.addWidget(self.delete_btn)
         outer.addWidget(top)
         # Build the tree first (filter setup triggers a refresh that reads it),
         # but add the filter bar above it in the layout.
@@ -81,6 +88,7 @@ class HistoryView(QWidget):
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._context_menu)
         self.tree.itemDoubleClicked.connect(self._on_double_click)
+        self.tree.itemSelectionChanged.connect(self._on_selection_changed)
 
         header = self.tree.header()
         header.setSectionResizeMode(0, QHeaderView.Stretch)
@@ -200,8 +208,24 @@ class HistoryView(QWidget):
 
         n = len(orders)
         self.count_label.setText(f"{n} order{'' if n == 1 else 's'}")
+        self._on_selection_changed()
 
     # -- actions ------------------------------------------------------------
+    def _selected_order(self):
+        """The order behind the current row, whether it's an order row or one
+        of its plate children — both carry an `order` attribute."""
+        item = self.tree.currentItem()
+        return getattr(item, "order", None) if item is not None else None
+
+    def _on_selection_changed(self) -> None:
+        self.delete_btn.setEnabled(self._selected_order() is not None)
+
+    def _delete_selected(self) -> None:
+        order = self._selected_order()
+        if order is None:
+            return
+        self.window.confirm_delete_order(order, self)
+
     def _on_double_click(self, item, _column) -> None:
         order = getattr(item, "order", None)
         if order is not None:

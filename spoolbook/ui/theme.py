@@ -168,6 +168,14 @@ def build_stylesheet() -> str:
         border: 1px solid {LINE_STRONG}; border-radius: 3px; padding: 6px 14px;
     }}
     #SecondaryButton:hover {{ background: {PANEL_ALT}; color: {INK}; }}
+    #DangerButton {{
+        background: transparent; color: {NEGATIVE};
+        border: 1px solid {NEGATIVE}; border-radius: 3px; padding: 6px 14px;
+    }}
+    #DangerButton:hover {{ background: {NEGATIVE}; color: {WHITE_TEXT}; }}
+    #DangerButton:disabled {{
+        color: {MUTED}; border-color: {LINE_STRONG}; background: transparent;
+    }}
     #AddPlateButton {{
         background: transparent; color: {ACCENT}; font-weight: 600;
         border: none; padding: 6px 4px; text-align: left;

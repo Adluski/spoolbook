@@ -7,6 +7,10 @@
 *.db-wal
 *.db-shm
 
+# Historical import source data (real customer names / pricing).
+historical_orders.csv
+spoolbook_historical_orders.xlsx
+
 # Python
 __pycache__/
 *.pyc
