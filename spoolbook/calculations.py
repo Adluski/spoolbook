@@ -93,7 +93,10 @@ def per_plate_final_price(plates: Sequence[Plate]) -> float:
 
 
 def per_plate_profit(plates: Sequence[Plate]) -> float:
-    return sum((p.profit or 0.0) for p in plates)
+    """Profit is always price − COGS, never the independently stored
+    snapshot (see plate.profit's docstring — it exists only as a
+    persisted snapshot of this same subtraction)."""
+    return sum((p.final_price or 0.0) - plate_cogs(p) for p in plates)
 
 
 # --- mode-aware order roll-ups --------------------------------------------
@@ -176,7 +179,7 @@ def plate_attributions(order: Order, settings: dict) -> list[dict]:
                 "material_type": p.material_type,
                 "cogs": plate_cogs(p) * order.quantity,
                 "revenue": (p.final_price or 0.0) * order.quantity,
-                "profit": (p.profit or 0.0) * order.quantity,
+                "profit": ((p.final_price or 0.0) - plate_cogs(p)) * order.quantity,
             }
             for p in plates
         ]

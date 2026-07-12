@@ -109,6 +109,10 @@ def test_order_level_price_defaults_to_suggested_when_unset():
 
 # -- per-plate roll-ups -----------------------------------------------------
 def test_per_plate_price_and_profit_sum_plates():
+    # Stored profit values (50, 30) are deliberately mismatched with
+    # price - cogs (150) to prove they are ignored: profit is derived, not
+    # trusted. Plate 1: 200 - 150 = 50 (coincides with stored). Plate 2:
+    # 120 - 150 = -30 (does NOT coincide with the stored 30).
     order = Order(
         pricing_mode="per_plate",
         plates=[
@@ -117,13 +121,27 @@ def test_per_plate_price_and_profit_sum_plates():
         ],
     )
     assert calc.order_final_price(order, SETTINGS) == 320.0
-    assert calc.order_profit(order, SETTINGS) == 80.0
+    assert calc.order_profit(order, SETTINGS) == pytest.approx(20.0)  # 50 + (-30)
 
 
-def test_per_plate_treats_missing_prices_as_zero():
-    order = Order(pricing_mode="per_plate",
-                  plates=[plate(final_price=None), plate(final_price=100.0)])
-    assert calc.order_final_price(order, SETTINGS) == 100.0
+def test_per_plate_profit_ignores_stale_stored_value():
+    # Mirrors test_order_level_profit_always_tracks_price_minus_cogs: a
+    # stale/independent stored plate.profit must never be trusted.
+    p = plate(final_price=200.0)  # cogs 150
+    p.profit = 9999.0  # deliberately wrong stored value
+    order = Order(pricing_mode="per_plate", plates=[p])
+    assert calc.order_profit(order, SETTINGS) == pytest.approx(50.0)  # 200 - 150, not 9999
+
+
+def test_per_plate_missing_price_reports_loss():
+    # A plate with no price still burned material/machine time — profit must
+    # show that loss, not silently read as zero.
+    unpriced = plate(final_price=None)   # cogs 150
+    priced = plate(final_price=100.0)    # cogs 150
+    order = Order(pricing_mode="per_plate", plates=[unpriced, priced])
+    assert calc.order_final_price(order, SETTINGS) == pytest.approx(100.0)
+    # unpriced: 0 - 150 = -150; priced: 100 - 150 = -50 -> total -200
+    assert calc.order_profit(order, SETTINGS) == pytest.approx(-200.0)
 
 
 # -- attribution ------------------------------------------------------------
@@ -261,6 +279,10 @@ def test_attributions_sum_back_per_plate_qty_gt_one():
     assert sum(r["revenue"] for r in rows) == pytest.approx(calc.order_final_price(order, SETTINGS))
     assert sum(r["profit"] for r in rows) == pytest.approx(calc.order_profit(order, SETTINGS))
     assert sum(r["cogs"] for r in rows) == pytest.approx(calc.total_cogs(order.plates) * order.quantity)
+    # The stored profit values (50, 30) are stale/wrong; prove they are not
+    # what produced the summed total.
+    naive_stale_sum = (50.0 + 30.0) * order.quantity
+    assert sum(r["profit"] for r in rows) != pytest.approx(naive_stale_sum)
 
 
 # -- money rounding ---------------------------------------------------------

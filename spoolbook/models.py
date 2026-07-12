@@ -25,6 +25,9 @@ class Plate:
     material_rate_per_gram: float = 0.0
     machine_rate_per_hour: float = 0.0
     # Used only when the parent order is in per_plate pricing mode.
+    # final_price is the one input; profit is always derived as
+    # final_price − COGS (calculations.per_plate_profit) and is stored here
+    # only as a persisted snapshot — nothing reads it back as truth.
     final_price: Optional[float] = None
     profit: Optional[float] = None
     # Reprint linkage.
