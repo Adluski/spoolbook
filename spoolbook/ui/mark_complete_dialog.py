@@ -7,6 +7,8 @@ to "completed", at which point it starts counting towards the dashboard.
 """
 from __future__ import annotations
 
+from dataclasses import replace
+
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -106,41 +108,51 @@ class MarkCompleteDialog(QDialog):
         self._recompute()
 
     def _live_cogs(self) -> tuple[float, list[float]]:
-        """COGS from the current field values, using each plate's rate snapshot.
+        """Per-run COGS from the current field values, using each plate's rate
+        snapshot (one run of the plate set — quantity is applied by callers).
 
         Returns (total, per-plate list) so callers can attribute per plate.
         """
-        per = []
-        for plate, weight, duration, _price in self._rows:
-            material = 0.0 if plate.material_source == "customer" \
-                else weight.value() * plate.material_rate_per_gram
-            machine = (duration.minutes() / 60.0) * plate.machine_rate_per_hour
-            per.append(material + machine)
+        per = [
+            calc.plate_cogs(replace(plate, weight_grams=weight.value(),
+                                     print_time_minutes=duration.minutes()))
+            for plate, weight, duration, _price in self._rows
+        ]
         return sum(per), per
 
     def _live_price(self) -> float:
+        """Per-run price: the order-level field already is (it mirrors
+        resolved_order_level_price, which is whole-job); in per_plate mode
+        it's the sum of each plate's own per-run price."""
         if self.per_plate:
             return sum(p.value() for _pl, _w, _d, p in self._rows if p is not None)
         return self.final_spin.value()
 
     def _recompute(self) -> None:
-        cogs, _ = self._live_cogs()
-        price = self._live_price()
+        cogs_per_run, _ = self._live_cogs()
+        qty = self.order.quantity
+        cogs_whole = cogs_per_run * qty
+        price_whole = self._live_price() * qty if self.per_plate else self._live_price()
+        profit_whole = price_whole - cogs_whole
+        note = f"   ·   whole job ×{qty}" if qty > 1 else ""
         self.summary.setText(
-            f"COGS {fmt_money(cogs)}   ·   Price {fmt_money(price)}   ·   "
-            f"Profit {fmt_money(price - cogs)}")
+            f"COGS {fmt_money(cogs_whole)}   ·   Price {fmt_money(price_whole)}   ·   "
+            f"Profit {fmt_money(profit_whole)}{note}")
 
     def _on_accept(self) -> None:
-        cogs, per = self._live_cogs()
+        cogs_per_run, per = self._live_cogs()
         for (plate, weight, duration, price), pcogs in zip(self._rows, per):
             plate.weight_grams = round(weight.value(), 2)
             plate.print_time_minutes = duration.minutes()
             if self.per_plate and price is not None:
+                # Per-run values, exactly as entered — quantity is applied
+                # only when the order rolls these up (calc.order_final_price
+                # / calc.order_profit), never stored on the plate itself.
                 plate.final_price = round(price.value(), 2)
                 plate.profit = round(price.value() - pcogs, 2)
         if not self.per_plate:
-            price = round(self.final_spin.value(), 2)
-            self.order.final_price = price
-            self.order.profit = round(price - cogs, 2)  # derived, kept in sync
+            price_whole = round(self.final_spin.value(), 2)
+            self.order.final_price = price_whole
+            self.order.profit = round(price_whole - cogs_per_run * self.order.quantity, 2)
         self.order.status = "completed"
         self.accept()
