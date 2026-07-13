@@ -4,7 +4,7 @@ from datetime import datetime
 
 from spoolbook.config import DEFAULT_SETTINGS
 from spoolbook.csv_export import HEADERS, build_rows, write_csv
-from spoolbook.models import Order, Plate
+from spoolbook.models import FailedAttempt, Order, Plate
 
 SETTINGS = dict(DEFAULT_SETTINGS)
 
@@ -67,6 +67,55 @@ def test_notes_newlines_flattened():
     notes = headers.index("notes")
     assert "\n" not in rows[0][notes]
     assert rows[0][notes] == "orange PLA"
+
+
+def test_failed_attempt_columns_present_with_failures():
+    o = Order(id=3, customer_name="Failed Co", title="Bracket",
+              date_time=datetime(2026, 6, 10, 12, 0), pricing_mode="order_level",
+              final_price=450.0,
+              plates=[plate(id=31, weight_grams=100.0, print_time_minutes=60,
+                            material_rate_per_gram=0.90, machine_rate_per_hour=25.0,
+                            failed_attempts=[FailedAttempt(completion_percent=20.0)]),
+                      plate(id=32, weight_grams=100.0, print_time_minutes=60,
+                            material_rate_per_gram=0.90, machine_rate_per_hour=25.0)])
+    headers, rows = build_rows([o], SETTINGS)
+    count = headers.index("failed_attempt_count")
+    percents = headers.index("failed_attempt_percents")
+    fmat = headers.index("failed_material_cost")
+    fmach = headers.index("failed_machine_cost")
+    fcogs = headers.index("failed_cogs")
+    order_cogs = headers.index("order_cogs")
+
+    assert rows[0][count] == 1
+    assert rows[0][percents] == "20"
+    assert rows[0][fmat] == 18.0
+    assert rows[0][fmach] == 5.0
+    assert rows[0][fcogs] == 23.0
+    # order_cogs comes from the roll-up and includes the failed cost: 230 base + 23
+    assert rows[0][order_cogs] == 253.0
+    assert rows[1][order_cogs] == 253.0
+
+
+def test_failed_attempt_columns_blank_for_no_failures():
+    _, rows = build_rows(_orders(), SETTINGS)
+    headers, _ = build_rows(_orders(), SETTINGS)
+    count = headers.index("failed_attempt_count")
+    percents = headers.index("failed_attempt_percents")
+    fcogs = headers.index("failed_cogs")
+    assert rows[0][count] == 0
+    assert rows[0][percents] == ""
+    assert rows[0][fcogs] == 0.0
+
+
+def test_multiple_failed_attempt_percents_joined():
+    o = Order(id=4, pricing_mode="order_level", final_price=100.0,
+              plates=[plate(id=41, failed_attempts=[
+                  FailedAttempt(completion_percent=10.0),
+                  FailedAttempt(completion_percent=60.0),
+              ])])
+    headers, rows = build_rows([o], SETTINGS)
+    percents = headers.index("failed_attempt_percents")
+    assert rows[0][percents] == "10;60"
 
 
 def test_write_csv_roundtrip(tmp_path):

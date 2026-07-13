@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from .config import DEFAULT_SETTINGS
-from .models import Order, Plate
+from .models import FailedAttempt, Order, Plate
 
 DT_FMT = "%Y-%m-%d %H:%M:%S"
 
@@ -57,6 +57,14 @@ CREATE TABLE IF NOT EXISTS plates (
 
 CREATE INDEX IF NOT EXISTS idx_plates_order    ON plates(order_id);
 CREATE INDEX IF NOT EXISTS idx_orders_datetime ON orders(date_time);
+
+CREATE TABLE IF NOT EXISTS failed_attempts (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    plate_id           INTEGER NOT NULL REFERENCES plates(id) ON DELETE CASCADE,
+    completion_percent REAL    NOT NULL,
+    position           INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_failed_attempts_plate ON failed_attempts(plate_id);
 """
 
 
@@ -172,6 +180,15 @@ class Database:
             position=row["position"],
         )
 
+    @staticmethod
+    def _row_to_failed_attempt(row: sqlite3.Row) -> FailedAttempt:
+        return FailedAttempt(
+            id=row["id"],
+            plate_id=row["plate_id"],
+            completion_percent=row["completion_percent"],
+            position=row["position"],
+        )
+
     # -- orders -------------------------------------------------------------
     def save_order(self, order: Order) -> int:
         """Insert or update an order and reconcile its plates in one transaction.
@@ -238,6 +255,7 @@ class Database:
             else:
                 self._update_plate(plate)
                 kept.add(plate.id)
+            self._sync_failed_attempts(plate)
         for stale_id in existing - kept:
             self.conn.execute("DELETE FROM plates WHERE id=?", (stale_id,))
 
@@ -276,10 +294,40 @@ class Database:
             ),
         )
 
+    def _sync_failed_attempts(self, plate: Plate) -> None:
+        """Replace a plate's failed attempts wholesale — simplest correct
+        approach since they carry no identity meaning outside their own plate."""
+        self.conn.execute("DELETE FROM failed_attempts WHERE plate_id=?", (plate.id,))
+        for position, attempt in enumerate(plate.failed_attempts):
+            attempt.plate_id = plate.id
+            attempt.position = position
+            cur = self.conn.execute(
+                "INSERT INTO failed_attempts (plate_id, completion_percent, position) "
+                "VALUES (?,?,?)",
+                (plate.id, attempt.completion_percent, position),
+            )
+            attempt.id = cur.lastrowid
+
+    def _attach_failed_attempts(self, plates_by_id: dict[int, Plate]) -> None:
+        ids = list(plates_by_id.keys())
+        if not ids:
+            return
+        placeholders = ",".join("?" * len(ids))
+        rows = self.conn.execute(
+            f"SELECT * FROM failed_attempts WHERE plate_id IN ({placeholders}) "
+            f"ORDER BY position, id",
+            ids,
+        )
+        for row in rows:
+            plates_by_id[row["plate_id"]].failed_attempts.append(
+                self._row_to_failed_attempt(row)
+            )
+
     def add_plate(self, plate: Plate) -> int:
         """Insert a single plate (used by the reprint flow) and return its id."""
         with self.conn:
             plate.id = self._insert_plate(plate)
+            self._sync_failed_attempts(plate)
         return plate.id
 
     def get_order(self, order_id: int) -> Optional[Order]:
@@ -296,7 +344,11 @@ class Database:
         row = self.conn.execute(
             "SELECT * FROM plates WHERE id=?", (plate_id,)
         ).fetchone()
-        return self._row_to_plate(row) if row else None
+        if row is None:
+            return None
+        plate = self._row_to_plate(row)
+        self._attach_failed_attempts({plate.id: plate})
+        return plate
 
     def _load_plates(self, order_ids: Iterable[int]) -> dict[int, list[Plate]]:
         ids = list(order_ids)
@@ -309,8 +361,12 @@ class Database:
             ids,
         )
         grouped: dict[int, list[Plate]] = {oid: [] for oid in ids}
+        plates_by_id: dict[int, Plate] = {}
         for row in rows:
-            grouped[row["order_id"]].append(self._row_to_plate(row))
+            p = self._row_to_plate(row)
+            grouped[row["order_id"]].append(p)
+            plates_by_id[p.id] = p
+        self._attach_failed_attempts(plates_by_id)
         return grouped
 
     def list_orders(

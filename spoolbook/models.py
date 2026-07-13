@@ -13,6 +13,14 @@ from typing import Optional
 
 
 @dataclass
+class FailedAttempt:
+    id: Optional[int] = None
+    plate_id: Optional[int] = None
+    completion_percent: float = 0.0
+    position: int = 0
+
+
+@dataclass
 class Plate:
     id: Optional[int] = None
     order_id: Optional[int] = None
@@ -34,9 +42,16 @@ class Plate:
     is_reprint: bool = False
     linked_plate_id: Optional[int] = None
     position: int = 0
+    # Failed prints wasted while making this deliverable, each pro-rated by
+    # how far it got. Never scales with order.quantity — see calculations.py.
+    failed_attempts: list[FailedAttempt] = field(default_factory=list)
 
     def clone_for_calculator(self) -> "Plate":
-        """A detached copy with no identity, for prefilling the entry screen."""
+        """A detached copy with no identity, for prefilling the entry screen.
+
+        Deliberately omits failed_attempts: a scratch estimate is
+        forward-looking, so it cannot have failed a print it hasn't run yet.
+        """
         return Plate(
             plate_label=self.plate_label,
             weight_grams=self.weight_grams,

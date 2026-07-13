@@ -37,6 +37,52 @@ def plate_cogs(plate: Plate) -> float:
     return plate_material_cost(plate) + plate_machine_cost(plate)
 
 
+# --- failed attempts ---------------------------------------------------------
+# A failed attempt is wasted consumption layered on top of a normally priced,
+# always-delivered plate — never a discount on that plate's own revenue, and
+# never scaled by order.quantity (it burned material/machine time exactly
+# once). Pro-rated against the PLATE's own snapshotted rates, never the
+# order's totals.
+def failed_attempt_material_cost(plate: Plate, attempt) -> float:
+    if plate.material_source == "customer":
+        return 0.0
+    pct = attempt.completion_percent / 100.0
+    return plate.weight_grams * pct * plate.material_rate_per_gram
+
+
+def failed_attempt_machine_cost(plate: Plate, attempt) -> float:
+    pct = attempt.completion_percent / 100.0
+    return (plate.print_time_minutes / 60.0) * pct * plate.machine_rate_per_hour
+
+
+def failed_attempt_cost(plate: Plate, attempt) -> float:
+    return failed_attempt_material_cost(plate, attempt) + failed_attempt_machine_cost(plate, attempt)
+
+
+def plate_failed_material_cost(plate: Plate) -> float:
+    return sum(failed_attempt_material_cost(plate, a) for a in plate.failed_attempts)
+
+
+def plate_failed_machine_cost(plate: Plate) -> float:
+    return sum(failed_attempt_machine_cost(plate, a) for a in plate.failed_attempts)
+
+
+def plate_failed_cost(plate: Plate) -> float:
+    return plate_failed_material_cost(plate) + plate_failed_machine_cost(plate)
+
+
+def total_failed_material_cost(plates: Sequence[Plate]) -> float:
+    return sum(plate_failed_material_cost(p) for p in plates)
+
+
+def total_failed_machine_cost(plates: Sequence[Plate]) -> float:
+    return sum(plate_failed_machine_cost(p) for p in plates)
+
+
+def total_failed_cost(plates: Sequence[Plate]) -> float:
+    return sum(plate_failed_cost(p) for p in plates)
+
+
 # --- order totals (cost of one unit as entered) ----------------------------
 def total_material_cost(plates: Sequence[Plate]) -> float:
     return sum(plate_material_cost(p) for p in plates)
@@ -51,8 +97,10 @@ def total_cogs(plates: Sequence[Plate]) -> float:
 
 
 def total_cogs_for_order(order: Order) -> float:
-    """Whole-job COGS: the per-unit total run order.quantity times."""
-    return total_cogs(order.plates) * order.quantity
+    """Whole-job COGS: delivered plates scale with quantity, failed attempts
+    don't — each is a single logged event that burned material/machine time
+    exactly once, regardless of how many units were ordered."""
+    return total_cogs(order.plates) * order.quantity + total_failed_cost(order.plates)
 
 
 # --- suggested pricing -----------------------------------------------------
@@ -162,7 +210,10 @@ def order_final_price(order: Order, settings: dict) -> float:
 
 def order_profit(order: Order, settings: dict) -> float:
     if order.pricing_mode == "per_plate":
-        return per_plate_profit(order.plates) * order.quantity
+        # NOT per_plate_profit(plates) * qty: that would subtract failed
+        # cost qty times. Failed cost is subtracted once, via
+        # total_cogs_for_order.
+        return per_plate_final_price(order.plates) * order.quantity - total_cogs_for_order(order)
     return resolved_order_level_profit(order, settings)
 
 
@@ -179,7 +230,11 @@ def order_rollup(order: Order, settings: dict) -> dict:
     return {
         "total_material_cost": total_material_cost(order.plates),
         "total_machine_cost": total_machine_cost(order.plates),
-        "total_cogs": cogs,
+        "total_cogs": cogs,  # unchanged: per-run, delivered-only
+        "total_failed_cost": total_failed_cost(order.plates),  # never scaled by quantity
+        "total_failed_material_cost": total_failed_material_cost(order.plates),
+        "total_failed_machine_cost": total_failed_machine_cost(order.plates),
+        "total_cogs_for_order": total_cogs_for_order(order),  # whole-job, incl. failures
         "suggested_unit_price": suggested_unit_price(order.plates, markup, buffer),
         "suggested_price": suggested_price(
             order.plates, markup, buffer, order.quantity,
@@ -204,28 +259,36 @@ def plate_attributions(order: Order, settings: dict) -> list[dict]:
         return []
 
     if order.pricing_mode == "per_plate":
-        return [
-            {
+        rows = []
+        for p in plates:
+            revenue = (p.final_price or 0.0) * order.quantity
+            cogs = plate_cogs(p) * order.quantity + plate_failed_cost(p)
+            rows.append({
                 "material_type": p.material_type,
-                "cogs": plate_cogs(p) * order.quantity,
-                "revenue": (p.final_price or 0.0) * order.quantity,
-                "profit": ((p.final_price or 0.0) - plate_cogs(p)) * order.quantity,
-            }
-            for p in plates
-        ]
+                "cogs": cogs,
+                "revenue": revenue,
+                "profit": revenue - cogs,
+            })
+        return rows
 
     order_revenue = order_final_price(order, settings)
-    order_prof = order_profit(order, settings)
+    # The revenue/profit split is weighted by DELIVERED-plate COGS only: a
+    # plate that failed must not attract a bigger revenue share for it.
     cogs_values = [plate_cogs(p) for p in plates]
     cogs_sum = sum(cogs_values)
 
     rows = []
     for plate, cogs in zip(plates, cogs_values):
         share = (cogs / cogs_sum) if cogs_sum else (1.0 / len(plates))
+        row_cogs = cogs * order.quantity + plate_failed_cost(plate)
+        row_revenue = order_revenue * share
         rows.append({
             "material_type": plate.material_type,
-            "cogs": cogs,
-            "revenue": order_revenue * share,
-            "profit": order_prof * share,
+            "cogs": row_cogs,
+            "revenue": row_revenue,
+            # Derived per row, not order_prof * share: keeps profit ==
+            # revenue - cogs exactly even when a failure makes a plate's
+            # cost share diverge from its revenue share.
+            "profit": row_revenue - row_cogs,
         })
     return rows

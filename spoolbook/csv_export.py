@@ -23,8 +23,14 @@ HEADERS = [
     "material", "source", "weight_g", "print_time_min",
     "material_rate_per_g", "machine_rate_per_hr",
     "plate_material_cost", "plate_machine_cost", "plate_cogs",
+    "failed_attempt_count", "failed_attempt_percents",
+    "failed_material_cost", "failed_machine_cost", "failed_cogs",
     "plate_price", "plate_profit",
 ]
+
+
+def _fmt_percent(value: float) -> str:
+    return str(int(value)) if value == int(value) else str(value)
 
 
 def _m(value) -> float:
@@ -45,7 +51,7 @@ def build_rows(orders: Sequence[Order], settings: dict) -> tuple[list[str], list
             order.pricing_mode,
             order.quantity,
             order.bulk_discount_percent,
-            _m(rollup["total_cogs"]),
+            _m(rollup["total_cogs_for_order"]),  # whole-job COGS, includes failures
             _m(rollup["final_price"]),
             _m(rollup["profit"]),
             round(rollup["margin_percent"], 1),
@@ -71,6 +77,11 @@ def build_rows(orders: Sequence[Order], settings: dict) -> tuple[list[str], list
                 _m(calc.plate_material_cost(plate)),
                 _m(calc.plate_machine_cost(plate)),
                 _m(calc.plate_cogs(plate)),
+                len(plate.failed_attempts),
+                ";".join(_fmt_percent(a.completion_percent) for a in plate.failed_attempts),
+                _m(calc.plate_failed_material_cost(plate)),
+                _m(calc.plate_failed_machine_cost(plate)),
+                _m(calc.plate_failed_cost(plate)),
                 _m(plate.final_price) if (per_plate and plate.final_price is not None) else "",
                 _m(plate.profit) if (per_plate and plate.profit is not None) else "",
             ])

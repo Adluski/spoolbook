@@ -239,9 +239,9 @@ def test_attributions_sum_back_order_level_qty_gt_one():
     rows = calc.plate_attributions(order, SETTINGS)
     assert sum(r["revenue"] for r in rows) == pytest.approx(calc.order_final_price(order, SETTINGS))
     assert sum(r["profit"] for r in rows) == pytest.approx(calc.order_profit(order, SETTINGS))
-    # order_level attribution "cogs" stays per-unit, matching order_rollup's
-    # total_cogs convention.
-    assert sum(r["cogs"] for r in rows) == pytest.approx(calc.total_cogs(order.plates))
+    # plate_attributions is a whole-job attribution in every mode: cogs sums
+    # back to the order's whole-job COGS, not the per-unit total.
+    assert sum(r["cogs"] for r in rows) == pytest.approx(calc.total_cogs_for_order(order))
 
 
 def test_per_plate_final_price_and_profit_qty_one_unchanged():

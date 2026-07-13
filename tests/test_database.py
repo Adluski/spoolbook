@@ -5,7 +5,7 @@ import pytest
 
 from spoolbook.config import DEFAULT_SETTINGS
 from spoolbook.database import Database
-from spoolbook.models import Order, Plate
+from spoolbook.models import FailedAttempt, Order, Plate
 
 
 @pytest.fixture
@@ -98,6 +98,66 @@ def test_delete_order_cascades_to_plates(db):
     db.delete_order(order.id)
     assert db.get_order(order.id) is None
     remaining = db.conn.execute("SELECT COUNT(*) c FROM plates").fetchone()["c"]
+    assert remaining == 0
+
+
+def test_failed_attempts_roundtrip_intact_and_in_order(db):
+    p = make_plate(plate_label="A", failed_attempts=[
+        FailedAttempt(completion_percent=60.0),
+        FailedAttempt(completion_percent=10.0),
+    ])
+    order = Order(plates=[p])
+    oid = db.save_order(order)
+
+    loaded = db.get_order(oid)
+    attempts = loaded.plates[0].failed_attempts
+    assert [a.completion_percent for a in attempts] == [60.0, 10.0]
+    assert all(a.id is not None for a in attempts)
+    assert all(a.plate_id == loaded.plates[0].id for a in attempts)
+
+
+def test_zero_failed_attempts_roundtrip_unaffected(db):
+    order = Order(plates=[make_plate(plate_label="A"), make_plate(plate_label="B")])
+    oid = db.save_order(order)
+    loaded = db.get_order(oid)
+    assert loaded.plates[0].failed_attempts == []
+    assert loaded.plates[1].failed_attempts == []
+
+
+def test_editing_plate_resyncs_failed_attempts(db):
+    p = make_plate(failed_attempts=[FailedAttempt(completion_percent=20.0)])
+    order = Order(plates=[p])
+    db.save_order(order)
+
+    order.plates[0].failed_attempts = [
+        FailedAttempt(completion_percent=30.0),
+        FailedAttempt(completion_percent=40.0),
+    ]
+    db.save_order(order)
+
+    loaded = db.get_order(order.id)
+    assert [a.completion_percent for a in loaded.plates[0].failed_attempts] == [30.0, 40.0]
+
+
+def test_delete_plate_cascades_to_failed_attempts(db):
+    p = make_plate(failed_attempts=[FailedAttempt(completion_percent=20.0)])
+    order = Order(plates=[p])
+    db.save_order(order)
+    plate_id = order.plates[0].id
+
+    db.delete_plate(plate_id)
+    remaining = db.conn.execute(
+        "SELECT COUNT(*) c FROM failed_attempts WHERE plate_id=?", (plate_id,)
+    ).fetchone()["c"]
+    assert remaining == 0
+
+
+def test_delete_order_cascades_to_failed_attempts(db):
+    p = make_plate(failed_attempts=[FailedAttempt(completion_percent=20.0)])
+    order = Order(plates=[p])
+    db.save_order(order)
+    db.delete_order(order.id)
+    remaining = db.conn.execute("SELECT COUNT(*) c FROM failed_attempts").fetchone()["c"]
     assert remaining == 0
 
 
