@@ -122,6 +122,26 @@ def test_new_type_save_reload_edit_save_roundtrip(view, db, qtbot):
     assert reloaded_again.plates[0].print_time_minutes == 180
 
 
+# -- save guard ---------------------------------------------------------------
+def test_save_refuses_all_blank_plates(view):
+    view.new_order()
+    view.customer_edit.setText("Someone")
+    # The default new_order() plate is already all-blank (weight=0, time=0).
+    view._save()
+    assert view.error_label.text()
+    assert view.order.id is None
+
+
+def test_save_allows_plate_with_only_print_time(view, db):
+    view.new_order()
+    view.customer_edit.setText("Someone")
+    row = view.plate_editor._rows[0]
+    row.duration._mins.setValue(30)  # drives the real spinbox, unlike set_minutes()
+    view._save()
+    assert view.error_label.text() == ""
+    assert len(db.list_orders()) == 1
+
+
 # -- per-plate mode -----------------------------------------------------------
 def test_edit_order_per_plate_mode_preserves_final_price(view):
     order = make_order(pricing_mode="per_plate")

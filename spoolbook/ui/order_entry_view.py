@@ -513,6 +513,9 @@ class OrderEntryView(QWidget):
         if not plates:
             self._error("Add at least one plate.")
             return
+        if all(p.weight_grams == 0 and p.print_time_minutes == 0 for p in plates):
+            self._error("A plate needs a weight or a print time.")
+            return
 
         o = self.order
         o.title = self.title_edit.text().strip()
