@@ -65,7 +65,7 @@ class CalculatorView(QWidget):
         head.addStretch(1)
         pl.addLayout(head)
         pl.addWidget(hline())
-        self.plate_editor = PlateRowsEditor(self.settings, "order_level")
+        self.plate_editor = PlateRowsEditor(self.settings, "order_level", allow_failures=False)
         pl.addWidget(self.plate_editor)
         bl.addWidget(panel)
         bl.addStretch(1)
