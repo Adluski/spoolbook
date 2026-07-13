@@ -115,7 +115,9 @@ class MarkCompleteDialog(QDialog):
         """
         per = [
             calc.plate_cogs(replace(plate, weight_grams=weight.value(),
-                                     print_time_minutes=duration.minutes()))
+                                     print_time_minutes=duration.minutes(),
+                                     failed_attempts=plate.failed_attempts))
+            + calc.plate_failed_cost(plate)
             for plate, weight, duration, _price in self._rows
         ]
         return sum(per), per
