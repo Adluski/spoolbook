@@ -11,7 +11,7 @@ from datetime import datetime
 import pytest
 
 from spoolbook.database import Database
-from spoolbook.models import Order, Plate
+from spoolbook.models import FailedAttempt, Order, Plate
 from spoolbook.ui.order_entry_view import OrderEntryView
 
 
@@ -91,6 +91,28 @@ def test_edit_order_preserves_order_id_for_save(view, db):
     view.edit_order(loaded)
 
     assert view.order.id == order_id
+
+
+# -- failed_attempts: 472c3a3's aliasing/clobbering class, new field ---------
+def test_edit_order_preserves_failed_attempts(view):
+    view.new_order()
+    order = make_order()
+    order.plates[0].failed_attempts = [FailedAttempt(completion_percent=40.0)]
+    original_percents = [a.completion_percent for a in order.plates[0].failed_attempts]
+
+    view.edit_order(order)
+
+    editor_plates = view.plate_editor.plates()
+    assert [a.completion_percent for a in editor_plates[0].failed_attempts] == [40.0]
+    assert editor_plates[1].failed_attempts == []
+    assert [a.completion_percent for a in view.order.plates[0].failed_attempts] == [40.0]
+
+    # Mutate the view's copy and confirm the caller's Order is unaffected —
+    # same shape as test_edit_order_does_not_mutate_callers_order, applied to
+    # the new field.
+    editor_plates[0].failed_attempts.append(FailedAttempt(completion_percent=99.0))
+    assert [a.completion_percent for a in order.plates[0].failed_attempts] == original_percents
+    assert view.order is not order
 
 
 # -- round trip: the exact sequence that destroyed real orders ---------------

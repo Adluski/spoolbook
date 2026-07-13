@@ -239,6 +239,11 @@ def build_stylesheet() -> str:
     #PlateRow {{ background: {PANEL}; border-bottom: 1px solid #ece7db; }}
     #RowCogs {{ font-family: {MONO_FONT_STACK}; font-weight: 700; color: {INK}; }}
     #ReprintBadge {{ color: {ACCENT}; font-weight: 700; }}
+    #FailuresButton {{
+        background: {PANEL_ALT}; color: {INK_SOFT}; border: 1px solid {LINE};
+        border-radius: 3px; font-weight: 700; padding: 2px 0;
+    }}
+    #FailuresButton:hover {{ color: {ACCENT}; border-color: {ACCENT}; }}
 
     /* ---- tree / table ------------------------------------------------ */
     #HistoryTree, #MaterialTable {{

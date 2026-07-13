@@ -15,6 +15,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
+    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -24,7 +25,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..calculations import plate_cogs, plate_machine_cost, plate_material_cost
+from ..calculations import (
+    plate_cogs,
+    plate_failed_cost,
+    plate_machine_cost,
+    plate_material_cost,
+)
 from ..config import (
     MATERIAL_SOURCE_LABELS,
     MATERIAL_SOURCES,
@@ -33,6 +39,7 @@ from ..config import (
     material_rate_key,
 )
 from ..models import Plate
+from .failed_attempts_dialog import FailedAttemptsDialog
 from .widgets import (
     DurationEditor,
     field_label,
@@ -48,6 +55,7 @@ W_MATERIAL = 74
 W_SOURCE = 134
 W_WEIGHT = 86
 W_TIME = 116
+W_FAILURES = 44
 W_COGS = 96
 W_PRICE = 98
 W_PROFIT = 98
@@ -65,12 +73,15 @@ class PlateRow(QFrame):
     changed = Signal()
     remove_requested = Signal(object)
 
-    def __init__(self, plate: Plate, settings: dict, pricing_mode: str, index: int, parent=None):
+    def __init__(self, plate: Plate, settings: dict, pricing_mode: str, index: int,
+                 allow_failures: bool = True, parent=None):
         super().__init__(parent)
         self.setObjectName("PlateRow")
         self.plate = plate
         self.settings = settings
         self.pricing_mode = pricing_mode
+        self.index = index
+        self.allow_failures = allow_failures
 
         lay = QHBoxLayout(self)
         lay.setContentsMargins(10, 6, 6, 6)
@@ -108,6 +119,14 @@ class PlateRow(QFrame):
 
         self.duration = DurationEditor()
         lay.addWidget(_fixed(self.duration, W_TIME))
+
+        # -- failed attempts --------------------------------------------------
+        self.failures_btn = QPushButton("—")
+        self.failures_btn.setObjectName("FailuresButton")
+        self.failures_btn.setCursor(Qt.PointingHandCursor)
+        self.failures_btn.clicked.connect(self._open_failures_dialog)
+        self.failures_btn.setVisible(self.allow_failures)
+        lay.addWidget(_fixed(self.failures_btn, W_FAILURES))
 
         # -- computed cogs --------------------------------------------------
         self.cogs = QLabel("—")
@@ -157,6 +176,7 @@ class PlateRow(QFrame):
             self.badge.setToolTip(f"Reprint of plate #{self.plate.linked_plate_id}")
         self._refresh_cogs()
         self._refresh_profit()
+        self._refresh_failures_button()
 
     def _connect(self) -> None:
         self.label_edit.textChanged.connect(self._commit)
@@ -200,6 +220,21 @@ class PlateRow(QFrame):
             f"Machine  {fmt_money(machine)}  (@ {fmt_money(mrate)}/h)"
         )
 
+    def _refresh_failures_button(self) -> None:
+        n = len(self.plate.failed_attempts)
+        self.failures_btn.setText(str(n) if n else "—")
+        if n:
+            self.failures_btn.setToolTip(f"Wasted: {fmt_money(plate_failed_cost(self.plate))}")
+        else:
+            self.failures_btn.setToolTip("No failed attempts")
+
+    def _open_failures_dialog(self) -> None:
+        dialog = FailedAttemptsDialog(self.plate, self.index, self)
+        if dialog.exec() == QDialog.Accepted:
+            self._refresh_failures_button()
+            self._refresh_cogs()
+            self.changed.emit()
+
     def _refresh_profit(self) -> None:
         """Profit is derived (final_price - COGS) and only ever stored as a
         snapshot; the widget is read-only display, never an input."""
@@ -233,10 +268,12 @@ class PlateRowsEditor(QWidget):
 
     changed = Signal()
 
-    def __init__(self, settings: dict, pricing_mode: str = "order_level", parent=None):
+    def __init__(self, settings: dict, pricing_mode: str = "order_level",
+                 allow_failures: bool = True, parent=None):
         super().__init__(parent)
         self.settings = settings
         self.pricing_mode = pricing_mode
+        self.allow_failures = allow_failures
         self._rows: list[PlateRow] = []
 
         outer = QVBoxLayout(self)
@@ -289,12 +326,15 @@ class PlateRowsEditor(QWidget):
         lay.addWidget(col("Source", W_SOURCE))
         lay.addWidget(col("Weight", W_WEIGHT, Qt.AlignRight))
         lay.addWidget(col("Print time", W_TIME))
+        self._h_failures = col("Failures", W_FAILURES)
+        lay.addWidget(self._h_failures)
         lay.addWidget(col("COGS", W_COGS, Qt.AlignRight))
         self._h_price = col("Price", W_PRICE, Qt.AlignRight)
         self._h_profit = col("Profit", W_PROFIT, Qt.AlignRight)
         lay.addWidget(self._h_price)
         lay.addWidget(self._h_profit)
         lay.addWidget(col("", W_REMOVE))
+        self._h_failures.setVisible(self.allow_failures)
         return header
 
     def _apply_mode_to_header(self) -> None:
@@ -325,7 +365,8 @@ class PlateRowsEditor(QWidget):
         if plate is None:
             plate = Plate()
             self._snapshot_new(plate)
-        row = PlateRow(plate, self.settings, self.pricing_mode, len(self._rows) + 1)
+        row = PlateRow(plate, self.settings, self.pricing_mode, len(self._rows) + 1,
+                       allow_failures=self.allow_failures)
         row.changed.connect(self.changed)
         row.remove_requested.connect(self._remove_row)
         self._rows.append(row)
