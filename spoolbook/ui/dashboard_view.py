@@ -194,7 +194,7 @@ class DashboardView(QWidget):
             rollup = calc.order_rollup(order, settings)
             revenue += rollup["final_price"]
             profit += rollup["profit"]
-            cogs += rollup["total_cogs"]
+            cogs += rollup["total_cogs_for_order"]
             for attr, plate in zip(calc.plate_attributions(order, settings), order.plates):
                 bucket = by_mat.get(attr["material_type"]) or extra[attr["material_type"]]
                 bucket["plates"] += 1
