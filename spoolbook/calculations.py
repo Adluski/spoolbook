@@ -222,15 +222,33 @@ def margin_percent(revenue: float, profit: float) -> float:
 
 
 def order_rollup(order: Order, settings: dict) -> dict:
-    """Everything the UI needs to show for one order, in one call."""
+    """Everything the UI needs to show for one order, in one call.
+
+    Key naming is load-bearing — "total_*" reads as "the" total, which is
+    exactly the trap that caused three separate bugs (order-entry profit,
+    plate_attributions, the dashboard tile). So the keys spell out their own
+    scope instead:
+
+    PER-UNIT (one run of the job; ignores order.quantity), delivered plates
+    only, no failed-attempt cost:
+        cogs_per_unit_delivered, material_cost_per_unit, machine_cost_per_unit
+    These exist only to feed the order-entry chip, which deliberately shows a
+    per-unit figure with a "Per unit — order quantity is x{qty}" tooltip.
+
+    WHOLE-JOB (scaled by order.quantity where applicable, includes failed
+    attempts once, never scaled by quantity): everything else, including
+    total_cogs_for_order, total_failed_cost, final_price, profit. This is
+    what every other caller — dashboard, history, CSV export — should reach
+    for by default.
+    """
     markup, buffer = _settings_markup(settings)
     cogs = total_cogs(order.plates)
     final_price = order_final_price(order, settings)
     profit = order_profit(order, settings)
     return {
-        "total_material_cost": total_material_cost(order.plates),
-        "total_machine_cost": total_machine_cost(order.plates),
-        "total_cogs": cogs,  # unchanged: per-run, delivered-only
+        "material_cost_per_unit": total_material_cost(order.plates),
+        "machine_cost_per_unit": total_machine_cost(order.plates),
+        "cogs_per_unit_delivered": cogs,
         "total_failed_cost": total_failed_cost(order.plates),  # never scaled by quantity
         "total_failed_material_cost": total_failed_material_cost(order.plates),
         "total_failed_machine_cost": total_failed_machine_cost(order.plates),

@@ -58,7 +58,7 @@ def build_order_item(order, settings) -> OrderItem:
     item.setText(2, order.title or "—")
     set_numeric(item, 3, total_weight, fmt_grams(total_weight))
     set_numeric(item, 4, total_time, fmt_minutes(total_time))
-    set_numeric(item, 5, rollup["total_cogs"], fmt_money(rollup["total_cogs"]))
+    set_numeric(item, 5, rollup["cogs_per_unit_delivered"], fmt_money(rollup["cogs_per_unit_delivered"]))
     set_numeric(item, 6, rollup["final_price"], fmt_money(rollup["final_price"]))
     set_numeric(item, 7, rollup["profit"], fmt_money(rollup["profit"]),
                 tone_positive=rollup["profit"] >= 0)

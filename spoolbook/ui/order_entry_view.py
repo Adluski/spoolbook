@@ -352,10 +352,10 @@ class OrderEntryView(QWidget):
         qty = self.order.quantity
 
         # These chips are always PER-UNIT by design (order_rollup's
-        # total_cogs convention) — do not scale them by quantity.
-        self.chip_material.set_value(fmt_money(rollup["total_material_cost"]))
-        self.chip_machine.set_value(fmt_money(rollup["total_machine_cost"]))
-        self.chip_cogs.set_value(fmt_money(rollup["total_cogs"]))
+        # cogs_per_unit_delivered convention) — do not scale them by quantity.
+        self.chip_material.set_value(fmt_money(rollup["material_cost_per_unit"]))
+        self.chip_machine.set_value(fmt_money(rollup["machine_cost_per_unit"]))
+        self.chip_cogs.set_value(fmt_money(rollup["cogs_per_unit_delivered"]))
         self.chip_suggested.set_value(fmt_money(rollup["suggested_price"]), tone="accent")
         self.chip_cogs.setToolTip(
             f"Per unit — order quantity is ×{qty}" if qty > 1 else "")

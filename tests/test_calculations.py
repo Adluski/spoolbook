@@ -171,7 +171,7 @@ def test_attributions_even_split_when_zero_cogs():
 def test_empty_order_rollup_is_safe():
     order = Order(pricing_mode="order_level", plates=[])
     r = calc.order_rollup(order, SETTINGS)
-    assert r["total_cogs"] == 0
+    assert r["cogs_per_unit_delivered"] == 0
     assert r["profit"] == pytest.approx(r["final_price"])  # 0 - 0
     assert calc.plate_attributions(order, SETTINGS) == []
 

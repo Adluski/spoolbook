@@ -212,8 +212,39 @@ def test_order_rollup_exposes_failed_cost_keys():
     p = plate(failed_attempts=[FailedAttempt(completion_percent=20.0)])
     order = Order(pricing_mode="order_level", plates=[p], quantity=3, final_price=1000.0)
     r = calc.order_rollup(order, SETTINGS)
-    assert r["total_cogs"] == pytest.approx(120.0)          # unchanged: per-run, delivered-only
+    assert r["cogs_per_unit_delivered"] == pytest.approx(120.0)  # per-unit, delivered-only
     assert r["total_failed_cost"] == pytest.approx(24.0)
     assert r["total_cogs_for_order"] == pytest.approx(384.0)
     assert r["total_failed_material_cost"] == pytest.approx(18.0)
     assert r["total_failed_machine_cost"] == pytest.approx(6.0)
+
+
+# -- the "total_cogs" naming trap: renamed keys, old ones gone for good -------
+def test_order_rollup_no_longer_emits_old_key_names():
+    p = plate(failed_attempts=[FailedAttempt(completion_percent=20.0)])
+    order = Order(pricing_mode="order_level", plates=[p], quantity=3, final_price=1000.0)
+    r = calc.order_rollup(order, SETTINGS)
+    # A stale reader must KeyError, not silently read the wrong figure.
+    assert "total_cogs" not in r
+    assert "total_material_cost" not in r
+    assert "total_machine_cost" not in r
+    with pytest.raises(KeyError):
+        r["total_cogs"]
+
+
+def test_cogs_per_unit_delivered_excludes_failures_and_ignores_quantity():
+    p = plate(failed_attempts=[FailedAttempt(completion_percent=20.0)])  # base cogs 120
+    order = Order(pricing_mode="order_level", plates=[p], quantity=5, final_price=1000.0)
+    r = calc.order_rollup(order, SETTINGS)
+    # Neither the x5 quantity nor the failed attempt's cost shows up here.
+    assert r["cogs_per_unit_delivered"] == pytest.approx(120.0)
+    assert r["material_cost_per_unit"] == pytest.approx(90.0)
+    assert r["machine_cost_per_unit"] == pytest.approx(30.0)
+
+
+def test_total_cogs_for_order_includes_failures_and_scales_delivered_cogs():
+    p = plate(failed_attempts=[FailedAttempt(completion_percent=20.0)])  # base cogs 120
+    order = Order(pricing_mode="order_level", plates=[p], quantity=5, final_price=1000.0)
+    r = calc.order_rollup(order, SETTINGS)
+    # delivered cogs scaled by qty (120*5=600) + failed cost once (24, unscaled)
+    assert r["total_cogs_for_order"] == pytest.approx(624.0)
