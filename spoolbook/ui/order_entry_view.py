@@ -12,6 +12,7 @@ from the price.
 """
 from __future__ import annotations
 
+import copy
 from datetime import datetime
 
 from PySide6.QtCore import QDate, QDateTime, Qt, QTime, Signal
@@ -67,6 +68,14 @@ class OrderEntryView(QWidget):
         self.settings = db.get_settings()
         self.order = Order()
         self._final_touched = False
+        # True while new_order/edit_order/prefill_from_calculator are
+        # populating widgets. Widget setters (notably
+        # plate_editor.set_pricing_mode / set_plates) emit `changed` as a
+        # side effect of loading state, not a user edit; without this guard
+        # that signal reaches _sync_order_from_widgets() and writes whatever
+        # partially-loaded widget state exists at that instant back into
+        # self.order, clobbering the data being loaded.
+        self._loading = False
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -317,6 +326,8 @@ class OrderEntryView(QWidget):
         """Push live widget values into self.order so calc functions that
         need a full Order (plates, quantity, final_price) see the current
         on-screen state."""
+        if self._loading:
+            return
         self.order.plates = self.plate_editor.plates()
         self.order.quantity = self.quantity_spin.value()
         self.order.bulk_discount_percent = self.discount_spin.value()
@@ -325,6 +336,14 @@ class OrderEntryView(QWidget):
 
     # -- modes --------------------------------------------------------------
     def _on_mode_changed(self, mode: str) -> None:
+        self.order.pricing_mode = mode
+        if self._loading:
+            # Loading only ever drives plate_editor.set_pricing_mode()
+            # directly, never the toggle, so this branch is defensive: it
+            # must not sync widget state into self.order or seed prices
+            # from a not-yet-populated editor.
+            self._apply_mode_visibility(mode)
+            return
         seed_prices = None
         if mode == "per_plate":
             # Seed blank per-plate prices from their share of the current
@@ -334,7 +353,6 @@ class OrderEntryView(QWidget):
             qty = self.order.quantity if self.order.quantity >= 1 else 1
             order_price = calc.resolved_order_level_price(self.order, self.settings) / qty
             seed_prices = calc.seed_per_plate_prices(self.order.plates, order_price)
-        self.order.pricing_mode = mode
         self.plate_editor.set_pricing_mode(mode, seed_prices)
         self._apply_mode_visibility(mode)
         self._recompute()
@@ -347,6 +365,8 @@ class OrderEntryView(QWidget):
 
     # -- recompute ----------------------------------------------------------
     def _recompute(self) -> None:
+        if self._loading:
+            return
         self._sync_order_from_widgets()
         rollup = calc.order_rollup(self.order, self.settings)
         qty = self.order.quantity
@@ -402,57 +422,76 @@ class OrderEntryView(QWidget):
 
     # -- load states --------------------------------------------------------
     def new_order(self) -> None:
-        self.settings = self.db.get_settings()
-        self.order = Order(date_time=datetime.now())
-        self._final_touched = False
-        self.title_label.setText("New order")
-        self.title_edit.clear()
-        self.customer_edit.clear()
-        self.notes_edit.clear()
-        self.datetime_edit.setDateTime(_to_qdatetime(self.order.date_time))
-        self.quantity_spin.setValue(1)
-        self.discount_spin.setValue(0)
-        self.queue_check.setChecked(False)
-        self.error_label.clear()
-        self.pricing_toggle.set_value("order_level")
-        self.order.pricing_mode = "order_level"
-        self.plate_editor.set_settings(self.settings)
-        self.plate_editor.set_pricing_mode("order_level")
-        self.plate_editor.set_plates([])
-        self.plate_editor.add_plate()  # start with one empty plate
-        self._apply_mode_visibility("order_level")
+        self._loading = True
+        try:
+            self.settings = self.db.get_settings()
+            self.order = Order(date_time=datetime.now())
+            self._final_touched = False
+            self.title_label.setText("New order")
+            self.title_edit.clear()
+            self.customer_edit.clear()
+            self.notes_edit.clear()
+            self.datetime_edit.setDateTime(_to_qdatetime(self.order.date_time))
+            self.quantity_spin.setValue(1)
+            self.discount_spin.setValue(0)
+            self.queue_check.setChecked(False)
+            self.error_label.clear()
+            self.pricing_toggle.set_value("order_level")
+            self.order.pricing_mode = "order_level"
+            self.plate_editor.set_settings(self.settings)
+            self.plate_editor.set_pricing_mode("order_level")
+            self.plate_editor.set_plates([])
+            self.plate_editor.add_plate()  # start with one empty plate
+            self._apply_mode_visibility("order_level")
+        finally:
+            self._loading = False
         self._recompute()
 
     def prefill_from_calculator(self, plates: list[Plate]) -> None:
         """Open a fresh order pre-filled with calculated plates (convert flow)."""
         self.new_order()
-        self.plate_editor.set_plates(plates or [])
+        self._loading = True
+        try:
+            self.plate_editor.set_plates(plates or [])
+        finally:
+            self._loading = False
         self._recompute()
         self.customer_edit.setFocus()
 
     def edit_order(self, order: Order) -> None:
-        self.settings = self.db.get_settings()
-        self.order = order
-        self.title_label.setText(f"Edit order #{order.id}")
-        self.title_edit.setText(order.title)
-        self.customer_edit.setText(order.customer_name)
-        self.notes_edit.setPlainText(order.notes)
-        self.datetime_edit.setDateTime(_to_qdatetime(order.date_time))
-        self.quantity_spin.setValue(order.quantity)
-        self.discount_spin.setValue(order.bulk_discount_percent)
-        self.queue_check.setChecked(order.status == "queued")
-        self.error_label.clear()
-        self.pricing_toggle.set_value(order.pricing_mode)
-        self.plate_editor.set_settings(self.settings)
-        self.plate_editor.set_pricing_mode(order.pricing_mode)
-        self.plate_editor.set_plates([p for p in order.plates])
-        self._apply_mode_visibility(order.pricing_mode)
-        if order.pricing_mode == "order_level":
-            # A stored final price is respected as-is; mark it touched so
-            # recompute does not clobber it. Profit is re-derived from it.
-            self._final_touched = order.final_price is not None
-            if order.final_price is not None:
-                self._set_spin(self.final_spin, order.final_price)
+        # self.order must never be an object the caller still holds — the
+        # plate rows write directly into their Plate instances, so even a
+        # shallow list copy of order.plates would leave the caller's Plate
+        # objects reachable and mutable from the editor.
+        self._loading = True
+        try:
+            self.settings = self.db.get_settings()
+            self.order = copy.deepcopy(order)
+            self.title_label.setText(f"Edit order #{order.id}")
+            self.title_edit.setText(order.title)
+            self.customer_edit.setText(order.customer_name)
+            self.notes_edit.setPlainText(order.notes)
+            self.datetime_edit.setDateTime(_to_qdatetime(order.date_time))
+            self.quantity_spin.setValue(order.quantity)
+            self.discount_spin.setValue(order.bulk_discount_percent)
+            self.queue_check.setChecked(order.status == "queued")
+            self.error_label.clear()
+            self.plate_editor.set_settings(self.settings)
+            # Populate the plate rows BEFORE anything that can emit a
+            # mode-change signal, so this ordering is correct even without
+            # the _loading guard above.
+            self.plate_editor.set_plates([p for p in self.order.plates])
+            self.pricing_toggle.set_value(order.pricing_mode)
+            self.plate_editor.set_pricing_mode(order.pricing_mode)
+            self._apply_mode_visibility(order.pricing_mode)
+            if order.pricing_mode == "order_level":
+                # A stored final price is respected as-is; mark it touched so
+                # recompute does not clobber it. Profit is re-derived from it.
+                self._final_touched = order.final_price is not None
+                if order.final_price is not None:
+                    self._set_spin(self.final_spin, order.final_price)
+        finally:
+            self._loading = False
         self._recompute()
 
     def ensure_new_mode(self) -> None:
