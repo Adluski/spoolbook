@@ -244,6 +244,17 @@ def test_attributions_sum_back_order_level_qty_gt_one():
     assert sum(r["cogs"] for r in rows) == pytest.approx(calc.total_cogs_for_order(order))
 
 
+def test_attributions_per_plate_ignores_stale_stored_profit():
+    # Mirrors test_per_plate_profit_ignores_stale_stored_value: plate.profit is
+    # a persisted snapshot nothing may read back, including plate_attributions.
+    p = qty_plate(final_price=200.0)  # cogs 120
+    p.profit = 9999.0  # deliberately wrong stored value
+    order = Order(pricing_mode="per_plate", plates=[p])
+    rows = calc.plate_attributions(order, SETTINGS)
+    assert rows[0]["profit"] == pytest.approx(80.0)  # 200 - 120, not 9999
+    assert rows[0]["profit"] != pytest.approx(9999.0)
+
+
 def test_per_plate_final_price_and_profit_qty_one_unchanged():
     order = Order(
         pricing_mode="per_plate", quantity=1,

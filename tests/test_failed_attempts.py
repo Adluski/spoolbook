@@ -151,6 +151,44 @@ def test_failed_plate_does_not_get_larger_revenue_share():
     assert rows_fail[0]["revenue"] == pytest.approx(500.0)
 
 
+# -- orders_tree: parent/child footing, pinned to the exact keys the tree uses -
+# orders_tree.py's parent row reads order_rollup()'s whole-job keys directly and
+# its child rows read plate_attributions() directly, so exercising those two
+# functions together is exactly what the (untestable, Qt) tree widget displays.
+def test_tree_footing_order_level_qty_gt_one_with_failure():
+    p1 = plate(material_type="PLA", failed_attempts=[FailedAttempt(completion_percent=20.0)])
+    p2 = plate(material_type="PETG", material_rate_per_gram=1.2, machine_rate_per_hour=40.0)
+    order = Order(pricing_mode="order_level", quantity=3, final_price=1500.0, plates=[p1, p2])
+
+    rollup = calc.order_rollup(order, SETTINGS)
+    rows = calc.plate_attributions(order, SETTINGS)
+
+    # parent COGS/Price/Profit == sum(child COGS/Price/Profit)
+    assert rollup["total_cogs_for_order"] == pytest.approx(sum(r["cogs"] for r in rows))
+    assert rollup["final_price"] == pytest.approx(sum(r["revenue"] for r in rows))
+    assert rollup["profit"] == pytest.approx(sum(r["profit"] for r in rows))
+    # per row: Profit == Price - COGS
+    for r in rows:
+        assert r["profit"] == pytest.approx(r["revenue"] - r["cogs"])
+
+
+def test_tree_footing_per_plate_qty_gt_one_with_failure():
+    p1 = plate(material_type="PLA", final_price=200.0,
+               failed_attempts=[FailedAttempt(completion_percent=20.0)])
+    p2 = plate(material_type="PETG", material_rate_per_gram=1.2,
+               machine_rate_per_hour=40.0, final_price=120.0)
+    order = Order(pricing_mode="per_plate", quantity=3, plates=[p1, p2])
+
+    rollup = calc.order_rollup(order, SETTINGS)
+    rows = calc.plate_attributions(order, SETTINGS)
+
+    assert rollup["total_cogs_for_order"] == pytest.approx(sum(r["cogs"] for r in rows))
+    assert rollup["final_price"] == pytest.approx(sum(r["revenue"] for r in rows))
+    assert rollup["profit"] == pytest.approx(sum(r["profit"] for r in rows))
+    for r in rows:
+        assert r["profit"] == pytest.approx(r["revenue"] - r["cogs"])
+
+
 # -- row identity: profit == revenue - cogs, qty>1 with failures, both modes --
 def test_row_profit_equals_revenue_minus_cogs_order_level_qty_gt_one_with_failures():
     p1 = plate(material_type="PLA", failed_attempts=[FailedAttempt(completion_percent=20.0)])

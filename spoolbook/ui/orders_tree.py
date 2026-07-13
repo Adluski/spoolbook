@@ -42,7 +42,13 @@ def set_numeric(item, col, value, text, tone_positive=None) -> None:
 
 
 def build_order_item(order, settings) -> OrderItem:
-    """A bold top-level row for an order, with its plates added as children."""
+    """A bold top-level row for an order, with its plates added as children.
+
+    Every column here is a whole-job figure — COGS, Price and Profit all
+    include quantity scaling and failed-attempt cost, so Profit == Price -
+    COGS on screen and the children (built from plate_attributions, the same
+    whole-job split) sum back to these totals exactly.
+    """
     rollup = calc.order_rollup(order, settings)
     total_weight = sum(p.weight_grams for p in order.plates)
     total_time = sum(p.print_time_minutes for p in order.plates)
@@ -58,7 +64,7 @@ def build_order_item(order, settings) -> OrderItem:
     item.setText(2, order.title or "—")
     set_numeric(item, 3, total_weight, fmt_grams(total_weight))
     set_numeric(item, 4, total_time, fmt_minutes(total_time))
-    set_numeric(item, 5, rollup["cogs_per_unit_delivered"], fmt_money(rollup["cogs_per_unit_delivered"]))
+    set_numeric(item, 5, rollup["total_cogs_for_order"], fmt_money(rollup["total_cogs_for_order"]))
     set_numeric(item, 6, rollup["final_price"], fmt_money(rollup["final_price"]))
     set_numeric(item, 7, rollup["profit"], fmt_money(rollup["profit"]),
                 tone_positive=rollup["profit"] >= 0)
@@ -69,12 +75,17 @@ def build_order_item(order, settings) -> OrderItem:
     for c in range(len(COLUMNS)):
         item.setFont(c, font)
 
-    for plate in order.plates:
-        item.addChild(build_plate_item(plate, order))
+    for plate, attr in zip(order.plates, calc.plate_attributions(order, settings)):
+        item.addChild(build_plate_item(plate, order, attr))
     return item
 
 
-def build_plate_item(plate, order) -> OrderItem:
+def build_plate_item(plate, order, attr) -> OrderItem:
+    """A child row built from plate_attributions' whole-job cogs/revenue/profit
+    for this plate — never plate.profit, which is a persisted snapshot nothing
+    reads back (see commit 61ab508). In order_level mode "revenue" is an
+    attributed share (split by delivered-COGS), not a typed price — same split
+    the dashboard already uses to group by material."""
     child = OrderItem()
     child.order = order
     child.plate = plate
@@ -90,14 +101,9 @@ def build_plate_item(plate, order) -> OrderItem:
     set_numeric(child, 3, plate.weight_grams, fmt_grams(plate.weight_grams))
     set_numeric(child, 4, plate.print_time_minutes,
                 fmt_minutes(plate.print_time_minutes))
-    pcogs = calc.plate_cogs(plate)
-    set_numeric(child, 5, pcogs, fmt_money(pcogs))
-    if order.pricing_mode == "per_plate":
-        set_numeric(child, 6, plate.final_price or 0, fmt_money(plate.final_price))
-        set_numeric(child, 7, plate.profit or 0, fmt_money(plate.profit),
-                    tone_positive=(plate.profit or 0) >= 0)
-    else:
-        child.setText(6, "")
-        child.setText(7, "")
+    set_numeric(child, 5, attr["cogs"], fmt_money(attr["cogs"]))
+    set_numeric(child, 6, attr["revenue"], fmt_money(attr["revenue"]))
+    set_numeric(child, 7, attr["profit"], fmt_money(attr["profit"]),
+                tone_positive=attr["profit"] >= 0)
     child.setText(8, "")
     return child
