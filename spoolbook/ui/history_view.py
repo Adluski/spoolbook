@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from ..csv_export import write_csv
 from ..config import MATERIALS
+from .cost_breakdown_dialog import CostBreakdownDialog
 from .orders_tree import COLUMNS, build_order_item
 from .widgets import PageHeader
 
@@ -246,7 +247,15 @@ class HistoryView(QWidget):
             menu.addAction("Edit order…", lambda: self.window.open_order_for_edit(order))
             menu.addAction("Delete order…",
                            lambda: self.window.confirm_delete_order(order, self))
+        # Always the last item, in both views, whatever the row: inspect the
+        # full costing without opening an editor that could re-save it.
+        if order is not None:
+            menu.addSeparator()
+            menu.addAction("Cost breakdown…", lambda: self._show_breakdown(order))
         menu.exec(self.tree.viewport().mapToGlobal(pos))
+
+    def _show_breakdown(self, order) -> None:
+        CostBreakdownDialog(order, self.db.get_settings(), self).exec()
 
     def _export_csv(self) -> None:
         """Export the currently filtered orders, one row per plate."""

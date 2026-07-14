@@ -222,6 +222,18 @@ def build_stylesheet() -> str:
         color: {MUTED}; font-family: {MONO_FONT_STACK};
         font-size: 8pt; font-weight: 600;
     }}
+    /* ---- cost breakdown dialog --------------------------------------- */
+    #BreakdownNum {{ font-family: {MONO_FONT_STACK}; color: {INK}; font-size: 9.5pt; }}
+    #BreakdownNumStrong {{
+        font-family: {MONO_FONT_STACK}; color: {INK};
+        font-size: 9.5pt; font-weight: 700;
+    }}
+    #BreakdownPlate {{ color: {INK}; font-weight: 700; }}
+    #BreakdownMeta {{ color: {MUTED}; font-size: 9pt; }}
+    #BreakdownDetail {{ color: {INK_SOFT}; font-size: 9pt; }}
+    #BreakdownColHead {{
+        color: {MUTED}; font-size: 8pt; font-weight: 700; letter-spacing: 0.5px;
+    }}
     #MarginValue {{
         color: {INK}; font-family: {MONO_FONT_STACK};
         font-size: 12pt; font-weight: 700;

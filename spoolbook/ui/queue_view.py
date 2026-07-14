@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .cost_breakdown_dialog import CostBreakdownDialog
 from .mark_complete_dialog import MarkCompleteDialog
 from .orders_tree import build_order_item
 from .widgets import PageHeader
@@ -121,7 +122,12 @@ class QueueView(QWidget):
         menu.addSeparator()
         menu.addAction("Delete order…",
                        lambda: self.window.confirm_delete_order(order, self))
+        # Always available — inspect the full costing without opening an editor.
+        menu.addAction("Cost breakdown…", lambda: self._show_breakdown(order))
         menu.exec(self.tree.viewport().mapToGlobal(pos))
+
+    def _show_breakdown(self, order) -> None:
+        CostBreakdownDialog(order, self.db.get_settings(), self).exec()
 
     def _mark_complete(self, order) -> None:
         dialog = MarkCompleteDialog(order, self.db.get_settings(), self)
