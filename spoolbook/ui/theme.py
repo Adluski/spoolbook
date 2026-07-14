@@ -218,6 +218,10 @@ def build_stylesheet() -> str:
         color: {INK}; font-family: {MONO_FONT_STACK};
         font-size: 13pt; font-weight: 700;
     }}
+    #StatSubtitle {{
+        color: {MUTED}; font-family: {MONO_FONT_STACK};
+        font-size: 8pt; font-weight: 600;
+    }}
     #MarginValue {{
         color: {INK}; font-family: {MONO_FONT_STACK};
         font-size: 12pt; font-weight: 700;
@@ -233,6 +237,9 @@ def build_stylesheet() -> str:
     *[tone="positive"] {{ color: {POSITIVE}; }}
     *[tone="negative"] {{ color: {NEGATIVE}; }}
     *[tone="accent"]   {{ color: {ACCENT}; }}
+    *[tone="muted"]    {{ color: {MUTED}; }}
+    /* A whole chip dimmed to read as inactive (e.g. WASTED with no failures). */
+    #StatChip[dim="true"] {{ background: {PANEL_ALT}; }}
 
     /* ---- plate editor rows ------------------------------------------- */
     #PlateHeader {{ background: {PANEL_ALT}; border-bottom: 1px solid {LINE}; }}

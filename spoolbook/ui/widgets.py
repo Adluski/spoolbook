@@ -177,7 +177,14 @@ class DurationEditor(QWidget):
 
 
 class StatChip(QFrame):
-    """A read-only caption + value block for summary bars (no drop shadow)."""
+    """A read-only caption + value block for summary bars (no drop shadow).
+
+    Optionally carries a muted second line (``set_subtitle``) and can behave as
+    a click target (``clicked`` signal + ``set_clickable``) for chips that cycle
+    what they show. A chip with neither is visually identical to the original.
+    """
+
+    clicked = Signal()
 
     def __init__(self, caption: str, value: str = "—",
                  value_name: str = "StatValue", parent=None):
@@ -186,18 +193,51 @@ class StatChip(QFrame):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(12, 8, 12, 8)
         lay.setSpacing(1)
-        cap = QLabel(caption.upper())
-        cap.setObjectName("StatCaption")
+        self._caption = QLabel(caption.upper())
+        self._caption.setObjectName("StatCaption")
         self._value = QLabel(value)
         self._value.setObjectName(value_name)
-        lay.addWidget(cap)
+        # Secondary line: created hidden so an unused subtitle costs no height.
+        self._subtitle = QLabel("")
+        self._subtitle.setObjectName("StatSubtitle")
+        self._subtitle.setVisible(False)
+        lay.addWidget(self._caption)
         lay.addWidget(self._value)
+        lay.addWidget(self._subtitle)
 
     def set_value(self, text: str, tone: str | None = None) -> None:
         self._value.setText(text)
         self._value.setProperty("tone", tone or "")
         self._value.style().unpolish(self._value)
         self._value.style().polish(self._value)
+
+    def set_caption(self, text: str) -> None:
+        self._caption.setText(text.upper())
+
+    def set_subtitle(self, text: str, tone: str | None = None) -> None:
+        """Show the second line with ``text``; hide it (no height cost) when
+        ``text`` is empty."""
+        self._subtitle.setText(text or "")
+        self._subtitle.setVisible(bool(text))
+        self._subtitle.setProperty("tone", tone or "")
+        self._subtitle.style().unpolish(self._subtitle)
+        self._subtitle.style().polish(self._subtitle)
+
+    def set_dim(self, dim: bool) -> None:
+        """Dim the whole chip so it reads as inactive without shifting layout."""
+        self.setProperty("dim", "true" if dim else "")
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+    def set_clickable(self, clickable: bool = True) -> None:
+        """Give the chip a pointing-hand cursor to advertise that it cycles.
+        The ``clicked`` signal fires regardless; this is only the affordance."""
+        self.setCursor(Qt.PointingHandCursor if clickable else Qt.ArrowCursor)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
 
 
 class SegmentedToggle(QWidget):
