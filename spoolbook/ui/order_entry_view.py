@@ -40,6 +40,7 @@ from .widgets import (
     SegmentedToggle,
     StatChip,
     field_label,
+    fmt_minutes,
     fmt_money,
     hline,
     int_spin,
@@ -68,6 +69,10 @@ class OrderEntryView(QWidget):
         self.settings = db.get_settings()
         self.order = Order()
         self._final_touched = False
+        # Which grams the MATERIAL chip's subtitle shows; cycles on click and
+        # resets to "total" whenever an order is loaded. The money figure never
+        # changes with this — only the grams line does.
+        self._grams_cycle = "total"
         # True while new_order/edit_order/prefill_from_calculator are
         # populating widgets. Widget setters (notably
         # plate_editor.set_pricing_mode / set_plates) emit `changed` as a
@@ -218,14 +223,28 @@ class OrderEntryView(QWidget):
         lay.setContentsMargins(32, 12, 32, 12)
         lay.setSpacing(10)
 
+        # Every cost chip is a WHOLE-JOB figure now (delivered × quantity plus
+        # failed attempts once) — one scale, no per-unit numbers on the footer.
         self.chip_material = StatChip("Material")
+        self.chip_material.set_clickable(True)   # its grams line cycles on click
+        self.chip_material.clicked.connect(self._cycle_grams)
         self.chip_machine = StatChip("Machine")
         self.chip_cogs = StatChip("Total COGS")
+        self.chip_wasted = StatChip("Wasted")
         self.chip_suggested = StatChip("Suggested")
-        for chip in (self.chip_material, self.chip_machine,
-                     self.chip_cogs, self.chip_suggested):
+        for chip in (self.chip_material, self.chip_machine, self.chip_cogs,
+                     self.chip_wasted, self.chip_suggested):
             lay.addWidget(chip)
 
+        lay.addStretch(1)
+        # Breakdown lives in the gap between the chips and the pricing group.
+        # Flat secondary weight — never competes with Save.
+        self.breakdown_btn = QPushButton("Breakdown")
+        self.breakdown_btn.setObjectName("SecondaryButton")
+        self.breakdown_btn.setCursor(Qt.PointingHandCursor)
+        self.breakdown_btn.clicked.connect(self._open_breakdown)
+        self.breakdown_btn.setVisible(False)
+        lay.addWidget(self.breakdown_btn)
         lay.addStretch(1)
 
         # order-level editable controls
@@ -370,15 +389,27 @@ class OrderEntryView(QWidget):
         self._sync_order_from_widgets()
         rollup = calc.order_rollup(self.order, self.settings)
         qty = self.order.quantity
+        qty_suffix = f" ×{qty}" if qty > 1 else ""
 
-        # These chips are always PER-UNIT by design (order_rollup's
-        # cogs_per_unit_delivered convention) — do not scale them by quantity.
-        self.chip_material.set_value(fmt_money(rollup["material_cost_per_unit"]))
-        self.chip_machine.set_value(fmt_money(rollup["machine_cost_per_unit"]))
-        self.chip_cogs.set_value(fmt_money(rollup["cogs_per_unit_delivered"]))
+        # Every cost chip is WHOLE-JOB (incl. failures). The ×{qty} caption
+        # suffix makes clear these are not per-unit numbers.
+        self.chip_material.set_value(fmt_money(rollup["whole_job_material_cost"]))
+        self.chip_material.set_caption(self._material_caption())
+        self.chip_material.set_subtitle(self._material_subtitle(rollup))
+
+        self.chip_machine.set_value(fmt_money(rollup["whole_job_machine_cost"]))
+        self.chip_machine.set_caption("Machine" + qty_suffix)
+        self.chip_machine.set_subtitle(fmt_minutes(rollup["total_consumed_minutes"]))
+
+        self.chip_cogs.set_value(fmt_money(rollup["total_cogs_for_order"]))
+        self.chip_cogs.set_caption("Total COGS" + qty_suffix)
+
+        self._update_wasted_chip(rollup)
         self.chip_suggested.set_value(fmt_money(rollup["suggested_price"]), tone="accent")
-        self.chip_cogs.setToolTip(
-            f"Per unit — order quantity is ×{qty}" if qty > 1 else "")
+
+        # Breakdown is only meaningful when there's more than one unit or a
+        # failure to break down; hidden otherwise.
+        self.breakdown_btn.setVisible(qty > 1 or rollup["total_failed_cost"] > 0)
 
         # final_price / profit / margin are WHOLE-JOB (x quantity) figures.
         if self.order.pricing_mode == "order_level":
@@ -396,6 +427,47 @@ class OrderEntryView(QWidget):
             self.chip_pp_profit.set_value(
                 fmt_money(profit), tone="positive" if profit >= 0 else "negative")
             self.chip_pp_margin.set_value(f"{rollup['margin_percent']:.1f}%")
+
+    # -- MATERIAL chip grams cycle -----------------------------------------
+    _GRAMS_STATES = ("total", "own", "supplied")
+    _GRAMS_KEYS = {
+        "total": "total_consumed_grams_total",
+        "own": "total_consumed_grams_own",
+        "supplied": "total_consumed_grams_supplied",
+    }
+
+    def _material_caption(self) -> str:
+        cap = f"Material · {self._grams_cycle}"
+        if self.order.quantity > 1:
+            cap += f" ×{self.order.quantity}"
+        return cap
+
+    def _material_subtitle(self, rollup) -> str:
+        grams = rollup[self._GRAMS_KEYS[self._grams_cycle]]
+        return f"{grams:,.0f} g {self._grams_cycle}"
+
+    def _cycle_grams(self) -> None:
+        i = (self._GRAMS_STATES.index(self._grams_cycle) + 1) % len(self._GRAMS_STATES)
+        self._grams_cycle = self._GRAMS_STATES[i]
+        self._recompute()  # money figure is unchanged; only the grams line moves
+
+    def _update_wasted_chip(self, rollup) -> None:
+        failed = rollup["total_failed_cost"]
+        self.chip_wasted.set_value(fmt_money(failed))
+        if failed > 0:
+            self.chip_wasted.set_subtitle(
+                f"{rollup['wasted_grams']:.1f} g · "
+                f"{fmt_minutes(rollup['wasted_minutes'])}")
+            self.chip_wasted.set_dim(False)
+        else:
+            # Always shown, just muted, so the layout never shifts.
+            self.chip_wasted.set_subtitle("—", tone="muted")
+            self.chip_wasted.set_dim(True)
+
+    def _open_breakdown(self) -> None:
+        self._sync_order_from_widgets()
+        from .cost_breakdown_dialog import CostBreakdownDialog
+        CostBreakdownDialog(self.order, self.settings, self).exec()
 
     def _set_spin(self, spin, value) -> None:
         spin.blockSignals(True)
@@ -427,6 +499,7 @@ class OrderEntryView(QWidget):
             self.settings = self.db.get_settings()
             self.order = Order(date_time=datetime.now())
             self._final_touched = False
+            self._grams_cycle = "total"
             self.title_label.setText("New order")
             self.title_edit.clear()
             self.customer_edit.clear()
@@ -467,6 +540,7 @@ class OrderEntryView(QWidget):
         try:
             self.settings = self.db.get_settings()
             self.order = copy.deepcopy(order)
+            self._grams_cycle = "total"
             self.title_label.setText(f"Edit order #{order.id}")
             self.title_edit.setText(order.title)
             self.customer_edit.setText(order.customer_name)
