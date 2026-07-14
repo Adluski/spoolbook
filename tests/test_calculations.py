@@ -3,7 +3,7 @@ import pytest
 
 from spoolbook import calculations as calc
 from spoolbook.config import DEFAULT_SETTINGS
-from spoolbook.models import Order, Plate
+from spoolbook.models import FailedAttempt, Order, Plate
 
 SETTINGS = dict(DEFAULT_SETTINGS)  # markup 1.75, buffer 5%
 
@@ -369,3 +369,110 @@ def test_round_money_half_up():
     assert calc.round_money(270.375) == 270.38
     assert calc.round_money(1.005) == 1.01
     assert calc.round_money(2.5) == 2.5
+
+
+# -- whole-job aggregations (footer rebuild, Run B) --------------------------
+# qty_plate: cogs 120 (90 material + 30 machine), 100 g, 72 min. A failure at
+# 50% burns 45 material / 15 machine / 50 g / 36 min against its own snapshot.
+def test_whole_job_material_cost_customer_failure_contributes_zero():
+    own = qty_plate()
+    cust = qty_plate(material_source="customer")
+    cust.failed_attempts = [FailedAttempt(completion_percent=50.0)]
+    order = Order(plates=[own, cust], quantity=3)
+    # own material 90 x3 = 270; customer material is 0 delivered AND 0 in the
+    # failure, so the failed attempt adds nothing to material money.
+    assert calc.total_failed_material_cost(order.plates) == pytest.approx(0.0)
+    assert calc.whole_job_material_cost(order) == pytest.approx(270.0)
+
+
+def test_whole_job_machine_cost_with_failures():
+    own = qty_plate()
+    cust = qty_plate(material_source="customer")
+    own.failed_attempts = [FailedAttempt(completion_percent=50.0)]   # 15 machine
+    cust.failed_attempts = [FailedAttempt(completion_percent=50.0)]  # 15 machine
+    order = Order(plates=[own, cust], quantity=3)
+    # machine 30+30 = 60 per run x3 = 180, plus 15+15 = 30 failed machine.
+    assert calc.whole_job_machine_cost(order) == pytest.approx(210.0)
+
+
+def test_total_consumed_grams_own_supplied_total_with_failures():
+    own = qty_plate()
+    cust = qty_plate(material_source="customer")
+    own.failed_attempts = [FailedAttempt(completion_percent=50.0)]   # 50 g
+    cust.failed_attempts = [FailedAttempt(completion_percent=50.0)]  # 50 g
+    order = Order(plates=[own, cust], quantity=3)
+    # own: 100 x3 + 50 = 350; supplied: 100 x3 + 50 = 350; total: 200 x3 + 100
+    assert calc.total_consumed_grams(order, source="own") == pytest.approx(350.0)
+    assert calc.total_consumed_grams(order, source="customer") == pytest.approx(350.0)
+    assert calc.total_consumed_grams(order, source=None) == pytest.approx(700.0)
+    # own + supplied == total, always.
+    assert (calc.total_consumed_grams(order, "own")
+            + calc.total_consumed_grams(order, "customer")
+            == pytest.approx(calc.total_consumed_grams(order, None)))
+
+
+def test_total_consumed_minutes_with_failures():
+    own = qty_plate()
+    cust = qty_plate(material_source="customer")
+    own.failed_attempts = [FailedAttempt(completion_percent=50.0)]   # 36 min
+    cust.failed_attempts = [FailedAttempt(completion_percent=50.0)]  # 36 min
+    order = Order(plates=[own, cust], quantity=3)
+    # 72+72 = 144 per run x3 = 432, plus 36+36 = 72 failed = 504.
+    assert calc.total_consumed_minutes(order) == pytest.approx(504.0)
+
+
+def test_wasted_grams_and_minutes_are_not_scaled_by_quantity():
+    own = qty_plate()
+    cust = qty_plate(material_source="customer")
+    own.failed_attempts = [FailedAttempt(completion_percent=50.0)]   # 50 g / 36 min
+    cust.failed_attempts = [FailedAttempt(completion_percent=50.0)]  # 50 g / 36 min
+    order = Order(plates=[own, cust], quantity=3)
+    # No quantity scaling: identical whether qty is 1 or 3.
+    assert calc.wasted_grams(order.plates) == pytest.approx(100.0)
+    assert calc.wasted_minutes(order.plates) == pytest.approx(72.0)
+    order.quantity = 1
+    assert calc.wasted_grams(order.plates) == pytest.approx(100.0)
+    assert calc.wasted_minutes(order.plates) == pytest.approx(72.0)
+    # wasted_grams is exactly failed_grams(source=None).
+    assert calc.wasted_grams(order.plates) == pytest.approx(
+        calc.failed_grams(order.plates, source=None))
+
+
+def test_whole_job_equals_per_unit_at_qty_one_no_failures():
+    p = qty_plate()
+    order = Order(plates=[p], quantity=1)
+    assert calc.whole_job_material_cost(order) == pytest.approx(
+        calc.total_material_cost(order.plates))
+    assert calc.whole_job_machine_cost(order) == pytest.approx(
+        calc.total_machine_cost(order.plates))
+
+
+def test_whole_job_material_plus_machine_equals_total_cogs_for_order():
+    # The load-bearing identity: if this fails the signatures are wrong.
+    own = qty_plate()
+    cust = qty_plate(material_source="customer")
+    own.failed_attempts = [FailedAttempt(completion_percent=40.0)]
+    cust.failed_attempts = [FailedAttempt(completion_percent=70.0)]
+    order = Order(plates=[own, cust], quantity=4)
+    assert (calc.whole_job_material_cost(order) + calc.whole_job_machine_cost(order)
+            == pytest.approx(calc.total_cogs_for_order(order)))
+
+
+def test_rollup_exposes_whole_job_keys():
+    own = qty_plate()
+    cust = qty_plate(material_source="customer")
+    own.failed_attempts = [FailedAttempt(completion_percent=50.0)]
+    cust.failed_attempts = [FailedAttempt(completion_percent=50.0)]
+    order = Order(pricing_mode="order_level", plates=[own, cust], quantity=3)
+    r = calc.order_rollup(order, SETTINGS)
+    assert r["whole_job_material_cost"] == pytest.approx(calc.whole_job_material_cost(order))
+    assert r["whole_job_machine_cost"] == pytest.approx(calc.whole_job_machine_cost(order))
+    assert r["total_consumed_grams_own"] == pytest.approx(350.0)
+    assert r["total_consumed_grams_supplied"] == pytest.approx(350.0)
+    assert r["total_consumed_grams_total"] == pytest.approx(700.0)
+    assert r["total_consumed_minutes"] == pytest.approx(504.0)
+    assert r["wasted_grams"] == pytest.approx(100.0)
+    assert r["wasted_minutes"] == pytest.approx(72.0)
+    # whole-job material + machine still foots to the whole-job COGS key.
+    assert (r["whole_job_material_cost"] + r["whole_job_machine_cost"]
+            == pytest.approx(r["total_cogs_for_order"]))

@@ -103,6 +103,80 @@ def total_cogs_for_order(order: Order) -> float:
     return total_cogs(order.plates) * order.quantity + total_failed_cost(order.plates)
 
 
+# --- whole-job aggregations (footer) ---------------------------------------
+# The footer shows ONE scale — the whole job, including failures — so every
+# figure below folds delivered consumption (× quantity) together with failed
+# consumption (logged once, never scaled). Money still honours the plate's own
+# rate snapshot and the customer-supplied rule (no material cost, ever).
+def whole_job_material_cost(order: Order) -> float:
+    """Whole-job filament money: delivered × quantity plus failed attempts."""
+    return (total_material_cost(order.plates) * order.quantity
+            + total_failed_material_cost(order.plates))
+
+
+def whole_job_machine_cost(order: Order) -> float:
+    """Whole-job machine money: delivered × quantity plus failed attempts."""
+    return (total_machine_cost(order.plates) * order.quantity
+            + total_failed_machine_cost(order.plates))
+
+
+def _source_matches(plate: Plate, source) -> bool:
+    # source: None = every plate; "own" / "customer" filter by material_source.
+    return source is None or plate.material_source == source
+
+
+def delivered_grams(plates: Sequence[Plate], source=None) -> float:
+    """Filament in one delivered run, optionally filtered by material source.
+    Whole-plate grams — callers multiply by quantity."""
+    return sum(p.weight_grams for p in plates if _source_matches(p, source))
+
+
+def failed_grams(plates: Sequence[Plate], source=None) -> float:
+    """Filament burned by failed attempts, pro-rated by how far each got.
+    Never scaled by quantity — each attempt happened exactly once."""
+    return sum(
+        p.weight_grams * (a.completion_percent / 100.0)
+        for p in plates if _source_matches(p, source)
+        for a in p.failed_attempts
+    )
+
+
+def total_consumed_grams(order: Order, source=None) -> float:
+    """Actual filament consumed for the whole job: delivered × quantity plus
+    failed attempts (once)."""
+    return (delivered_grams(order.plates, source) * order.quantity
+            + failed_grams(order.plates, source))
+
+
+def delivered_minutes(plates: Sequence[Plate]) -> float:
+    """Print time in one delivered run."""
+    return sum(p.print_time_minutes for p in plates)
+
+
+def failed_minutes(plates: Sequence[Plate]) -> float:
+    """Print time burned by failed attempts, pro-rated by completion."""
+    return sum(
+        p.print_time_minutes * (a.completion_percent / 100.0)
+        for p in plates for a in p.failed_attempts
+    )
+
+
+def total_consumed_minutes(order: Order) -> float:
+    """Actual print time for the whole job: delivered × quantity plus failed."""
+    return (delivered_minutes(order.plates) * order.quantity
+            + failed_minutes(order.plates))
+
+
+def wasted_grams(plates: Sequence[Plate]) -> float:
+    """Filament thrown away on failed attempts (never scaled by quantity)."""
+    return failed_grams(plates, source=None)
+
+
+def wasted_minutes(plates: Sequence[Plate]) -> float:
+    """Machine time thrown away on failed attempts (never scaled by quantity)."""
+    return failed_minutes(plates)
+
+
 # --- suggested pricing -----------------------------------------------------
 def suggested_unit_price(
     plates: Sequence[Plate],
@@ -230,16 +304,19 @@ def order_rollup(order: Order, settings: dict) -> dict:
     scope instead:
 
     PER-UNIT (one run of the job; ignores order.quantity), delivered plates
-    only, no failed-attempt cost:
+    only, no failed-attempt cost — every per-unit key spells it out with
+    "per_unit" in its name:
         cogs_per_unit_delivered, material_cost_per_unit, machine_cost_per_unit
-    These exist only to feed the order-entry chip, which deliberately shows a
-    per-unit figure with a "Per unit — order quantity is x{qty}" tooltip.
+    These now feed ONLY the cost-breakdown dialog; the order-entry footer no
+    longer reads them (it shows whole-job figures — see below).
 
     WHOLE-JOB (scaled by order.quantity where applicable, includes failed
     attempts once, never scaled by quantity): everything else, including
-    total_cogs_for_order, total_failed_cost, final_price, profit. This is
-    what every other caller — dashboard, history, CSV export — should reach
-    for by default.
+    total_cogs_for_order, total_failed_cost, final_price, profit, and the
+    footer figures whole_job_material_cost / whole_job_machine_cost /
+    total_consumed_grams_* / total_consumed_minutes / wasted_grams /
+    wasted_minutes. This is what every other caller — footer, dashboard,
+    history, CSV export — should reach for by default.
     """
     markup, buffer = _settings_markup(settings)
     cogs = total_cogs(order.plates)
@@ -253,6 +330,18 @@ def order_rollup(order: Order, settings: dict) -> dict:
         "total_failed_material_cost": total_failed_material_cost(order.plates),
         "total_failed_machine_cost": total_failed_machine_cost(order.plates),
         "total_cogs_for_order": total_cogs_for_order(order),  # whole-job, incl. failures
+        # WHOLE-JOB material/machine money (delivered × quantity + failures).
+        # These, not the *_per_unit keys above, are what the footer reads.
+        "whole_job_material_cost": whole_job_material_cost(order),
+        "whole_job_machine_cost": whole_job_machine_cost(order),
+        # Actual consumed grams/minutes for the whole job, split by source.
+        "total_consumed_grams_own": total_consumed_grams(order, "own"),
+        "total_consumed_grams_supplied": total_consumed_grams(order, "customer"),
+        "total_consumed_grams_total": total_consumed_grams(order, None),
+        "total_consumed_minutes": total_consumed_minutes(order),
+        # Failed-attempt waste only (never scaled by quantity).
+        "wasted_grams": wasted_grams(order.plates),
+        "wasted_minutes": wasted_minutes(order.plates),
         "suggested_unit_price": suggested_unit_price(order.plates, markup, buffer),
         "suggested_price": suggested_price(
             order.plates, markup, buffer, order.quantity,
