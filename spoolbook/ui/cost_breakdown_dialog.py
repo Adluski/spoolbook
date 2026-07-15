@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog,
     QDialogButtonBox,
     QFrame,
     QGridLayout,
@@ -25,6 +24,7 @@ from PySide6.QtWidgets import (
 from .. import calculations as calc
 from ..config import MATERIAL_SOURCE_LABELS
 from ..models import Order
+from .frameless import FramelessDialog
 from .widgets import fmt_grams, fmt_minutes, fmt_money, hline, section_label
 
 
@@ -36,17 +36,16 @@ def _rate_per_hour(rate: float) -> str:
     return f"{fmt_money(rate)}/h"
 
 
-class CostBreakdownDialog(QDialog):
+class CostBreakdownDialog(FramelessDialog):
     def __init__(self, order: Order, settings: dict, parent=None):
-        super().__init__(parent)
+        super().__init__(title="Cost breakdown", parent=parent)
         self.order = order
         self.settings = settings
         self.qty = order.quantity
-        self.setWindowTitle("Cost breakdown")
         self.setMinimumWidth(560)
         self.setMinimumHeight(480)
 
-        outer = QVBoxLayout(self)
+        outer = QVBoxLayout(self.body)
         outer.setContentsMargins(22, 20, 22, 18)
         outer.setSpacing(12)
 

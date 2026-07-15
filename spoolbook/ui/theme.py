@@ -95,6 +95,16 @@ def build_stylesheet() -> str:
         border-top: 1px solid {LINE}; border-bottom: 1px solid {LINE};
     }}
     #SummaryBar {{ background: {PANEL_ALT}; border-top: 1px solid {LINE_STRONG}; }}
+    #DialogTitleBar {{ background: {PANEL_ALT}; border-bottom: 1px solid {LINE}; }}
+    #DialogTitleLabel {{
+        color: {INK}; font-family: {UI_FONT_STACK};
+        font-size: 11pt; font-weight: 600;
+    }}
+    #DialogCloseButton {{
+        background: transparent; color: {INK_SOFT}; border: none;
+        border-radius: 3px; font-size: 13pt; padding: 0;
+    }}
+    #DialogCloseButton:hover {{ background: {ACCENT_TINT}; color: {INK}; }}
     #Panel {{
         background: {PANEL}; border: 1px solid {LINE}; border-radius: 4px;
     }}

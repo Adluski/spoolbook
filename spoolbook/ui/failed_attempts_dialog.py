@@ -13,7 +13,6 @@ from dataclasses import replace
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog,
     QDialogButtonBox,
     QHBoxLayout,
     QLabel,
@@ -24,22 +23,21 @@ from PySide6.QtWidgets import (
 
 from .. import calculations as calc
 from ..models import FailedAttempt, Plate
+from .frameless import FramelessDialog
 from .widgets import field_label, fmt_money, int_spin, section_label
 
 
-class FailedAttemptsDialog(QDialog):
+class FailedAttemptsDialog(FramelessDialog):
     def __init__(self, plate: Plate, index: int, parent=None):
-        super().__init__(parent)
+        plate_name = plate.plate_label or f"Plate {index}"
+        title_text = f"Failed attempts — {plate_name}"
+        super().__init__(title=title_text, parent=parent)
         self.plate = plate
         self._attempts = copy.deepcopy(plate.failed_attempts)
         self._rows: list[dict] = []
-
-        plate_name = plate.plate_label or f"Plate {index}"
-        title_text = f"Failed attempts — {plate_name}"
-        self.setWindowTitle(title_text)
         self.setMinimumWidth(420)
 
-        outer = QVBoxLayout(self)
+        outer = QVBoxLayout(self.body)
         outer.setContentsMargins(22, 20, 22, 18)
         outer.setSpacing(14)
 

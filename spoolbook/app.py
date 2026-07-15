@@ -23,6 +23,7 @@ def build_application(argv: list[str] | None = None) -> QApplication:
     font.setStyleHint(QFont.SansSerif)
     app.setFont(font)
 
+    app.setStyle("Fusion")
     app.setStyleSheet(build_stylesheet())
     return app
 

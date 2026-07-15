@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import (
     QComboBox,
-    QDialog,
     QDialogButtonBox,
     QFormLayout,
     QLabel,
@@ -25,6 +24,7 @@ from ..config import (
     material_rate_key,
 )
 from ..models import Plate
+from .frameless import FramelessDialog
 from .widgets import (
     DurationEditor,
     field_label,
@@ -35,16 +35,15 @@ from .widgets import (
 )
 
 
-class ReprintDialog(QDialog):
+class ReprintDialog(FramelessDialog):
     def __init__(self, source: Plate, settings: dict, parent=None):
-        super().__init__(parent)
+        super().__init__(title="Log reprint", parent=parent)
         self.source = source
         self.settings = settings
         self.result_plate: Plate | None = None
-        self.setWindowTitle("Log reprint")
         self.setMinimumWidth(420)
 
-        outer = QVBoxLayout(self)
+        outer = QVBoxLayout(self.body)
         outer.setContentsMargins(22, 20, 22, 18)
         outer.setSpacing(14)
 

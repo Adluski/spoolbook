@@ -10,7 +10,6 @@ from __future__ import annotations
 from dataclasses import replace
 
 from PySide6.QtWidgets import (
-    QDialog,
     QDialogButtonBox,
     QGridLayout,
     QLabel,
@@ -19,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from .. import calculations as calc
 from ..models import Order
+from .frameless import FramelessDialog
 from .widgets import (
     DurationEditor,
     field_label,
@@ -29,16 +29,15 @@ from .widgets import (
 )
 
 
-class MarkCompleteDialog(QDialog):
+class MarkCompleteDialog(FramelessDialog):
     def __init__(self, order: Order, settings: dict, parent=None):
-        super().__init__(parent)
+        super().__init__(title="Mark complete", parent=parent)
         self.order = order
         self.settings = settings
         self.per_plate = order.pricing_mode == "per_plate"
-        self.setWindowTitle("Mark complete")
         self.setMinimumWidth(540)
 
-        outer = QVBoxLayout(self)
+        outer = QVBoxLayout(self.body)
         outer.setContentsMargins(22, 20, 22, 18)
         outer.setSpacing(14)
 
