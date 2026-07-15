@@ -106,3 +106,4 @@ spoolbook/
 tests/                calculation, database and CSV tests
 run.py                launcher (python run.py)
 ```
+
